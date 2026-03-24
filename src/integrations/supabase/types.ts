@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      barber_profiles: {
+        Row: {
+          created_at: string
+          email: string | null
+          full_name: string
+          id: string
+          phone: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          full_name: string
+          id?: string
+          phone?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          full_name?: string
+          id?: string
+          phone?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       barbers: {
         Row: {
           created_at: string
@@ -54,6 +84,61 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "barbers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chair_bookings: {
+        Row: {
+          barber_profile_id: string
+          booking_date: string
+          chair_id: string
+          created_at: string
+          id: string
+          organization_id: string
+          price: number
+          status: Database["public"]["Enums"]["booking_status"]
+        }
+        Insert: {
+          barber_profile_id: string
+          booking_date: string
+          chair_id: string
+          created_at?: string
+          id?: string
+          organization_id: string
+          price?: number
+          status?: Database["public"]["Enums"]["booking_status"]
+        }
+        Update: {
+          barber_profile_id?: string
+          booking_date?: string
+          chair_id?: string
+          created_at?: string
+          id?: string
+          organization_id?: string
+          price?: number
+          status?: Database["public"]["Enums"]["booking_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chair_bookings_barber_profile_id_fkey"
+            columns: ["barber_profile_id"]
+            isOneToOne: false
+            referencedRelation: "barber_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_bookings_chair_id_fkey"
+            columns: ["chair_id"]
+            isOneToOne: false
+            referencedRelation: "chairs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_bookings_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
@@ -342,6 +427,7 @@ export type Database = {
     }
     Enums: {
       billing_cycle: "daily" | "weekly" | "monthly"
+      booking_status: "pending" | "confirmed" | "cancelled"
       chair_status: "available" | "occupied" | "maintenance"
       contract_status: "pending" | "active" | "ended" | "cancelled"
       location_status: "active" | "inactive"
@@ -474,6 +560,7 @@ export const Constants = {
   public: {
     Enums: {
       billing_cycle: ["daily", "weekly", "monthly"],
+      booking_status: ["pending", "confirmed", "cancelled"],
       chair_status: ["available", "occupied", "maintenance"],
       contract_status: ["pending", "active", "ended", "cancelled"],
       location_status: ["active", "inactive"],
