@@ -1,61 +1,137 @@
-import { NavLink, Outlet } from "react-router-dom";
-import { useAuth } from "@/hooks/useAuth";
-import { Scissors, LayoutDashboard, Search, CalendarDays, LogOut } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import {
+  FileText,
+  LayoutDashboard,
+  LogOut,
+  Scissors,
+  User,
+  ClipboardCheck,
+  Search,
+  CalendarDays,
+} from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { useBarberProfile } from "@/hooks/useBarberProfile";
 
-const navItems = [
-  { to: "/barber/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/barber/browse", label: "Browse Stations", icon: Search },
-  { to: "/barber/bookings", label: "My Bookings", icon: CalendarDays },
-];
+function navLinkClass(isActive: boolean) {
+  return [
+    "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition",
+    isActive
+      ? "bg-accent text-foreground"
+      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+  ].join(" ");
+}
 
 export default function BarberLayout() {
-  const { signOut } = useAuth();
+  const navigate = useNavigate();
+  const { isReceptionist, isAdmin } = useBarberProfile();
+
+  const handleLogout = async () => {
+    const { error } = await supabase.auth.signOut();
+
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    toast.success("Você saiu da sua conta.");
+    navigate("/barber/auth", { replace: true });
+  };
 
   return (
-    <div className="flex h-screen bg-background">
-      <aside className="flex w-60 flex-col border-r border-border bg-sidebar">
-        <div className="flex items-center gap-2 px-4 py-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-foreground">
-            <Scissors className="h-3.5 w-3.5 text-background" />
+    <div className="min-h-screen bg-background">
+      <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
+        <aside className="border-b border-border bg-card lg:border-b-0 lg:border-r">
+          <div className="flex h-full flex-col p-4">
+            <div className="mb-6 flex items-center gap-3 px-2">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary">
+                <Scissors className="h-5 w-5 text-foreground" />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  Portal do barbeiro
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Contratos, clientes e atendimento
+                </p>
+              </div>
+            </div>
+
+            <nav className="flex flex-col gap-1">
+              <NavLink
+                to="/barber/dashboard"
+                className={({ isActive }) => navLinkClass(isActive)}
+              >
+                <LayoutDashboard className="h-4 w-4" />
+                Dashboard
+              </NavLink>
+
+              {!isReceptionist && (
+                <NavLink
+                  to="/barber/explore"
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  <Search className="h-4 w-4" />
+                  Explorar cadeiras
+                </NavLink>
+              )}
+
+              {!isReceptionist && (
+                <NavLink
+                  to="/barber/contracts"
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  <FileText className="h-4 w-4" />
+                  Meus contratos
+                </NavLink>
+              )}
+
+              {!isReceptionist && (
+                <NavLink
+                  to="/barber/my-bookings"
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  Minhas reservas
+                </NavLink>
+              )}
+
+              <NavLink
+                to="/barber/clients"
+                className={({ isActive }) => navLinkClass(isActive)}
+              >
+                <User className="h-4 w-4" />
+                {isReceptionist ? "Clientes da Casa" : "Meus clientes"}
+              </NavLink>
+
+              <NavLink
+                to="/barber/checkin"
+                className={({ isActive }) => navLinkClass(isActive)}
+              >
+                <ClipboardCheck className="h-4 w-4" />
+                Check-in
+              </NavLink>
+            </nav>
+
+            <div className="mt-auto pt-6">
+              <Button
+                variant="outline"
+                className="w-full justify-start rounded-2xl"
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Sair
+              </Button>
+            </div>
           </div>
-          <span className="text-sm font-semibold tracking-tight text-foreground">Barber Portal</span>
-        </div>
+        </aside>
 
-        <nav className="flex-1 space-y-0.5 px-2 py-2">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors duration-150",
-                  isActive
-                    ? "bg-sidebar-accent text-foreground relative before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-4 before:w-0.5 before:rounded-full before:bg-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
-                )
-              }
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="border-t border-border px-2 py-2">
-          <button
-            onClick={signOut}
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </button>
-        </div>
-      </aside>
-
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+        <main className="min-w-0">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

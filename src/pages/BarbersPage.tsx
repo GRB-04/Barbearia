@@ -1,120 +1,410 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, User, Mail, Phone, Trash2, Copy, Share2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Plus, User } from "lucide-react";
-import { motion } from "framer-motion";
-import type { Tables } from "@/integrations/supabase/types";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
 
-type Barber = Tables<"barbers">;
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: [0.2, 0, 0, 1] as const } },
+type BarberRow = {
+  id: string;
+  barber_profile_id: string | null;
+  organization_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  user_id: string | null;
+  role?: "owner" | "manager" | "receptionist" | "barber";
 };
 
 export default function BarbersPage() {
-  const { organization } = useOrganization();
-  const [barbers, setBarbers] = useState<Barber[]>([]);
-  const [open, setOpen] = useState(false);
+  const { organization, loading: orgLoading } = useOrganization();
+
+  const [barbers, setBarbers] = useState<BarberRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
   const [fullName, setFullName] = useState("");
-  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [phone, setPhone] = useState("");
+
+  const loadBarbers = async () => {
+    if (!organization?.id) {
+      setBarbers([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("barbers")
+      .select(
+        "id, barber_profile_id, organization_id, full_name, email, phone, user_id"
+      )
+      .eq("organization_id", organization.id)
+      .order("full_name", { ascending: true });
+
+    if (error) {
+      console.error("[BarbersPage] load error:", error);
+      toast.error("Não foi possível carregar os barbeiros.");
+      setBarbers([]);
+      setLoading(false);
+      return;
+    }
+
+    setBarbers((data as BarberRow[]) ?? []);
+    setLoading(false);
+  };
 
   useEffect(() => {
-    if (organization) fetchBarbers();
-  }, [organization]);
+    void loadBarbers();
+  }, [organization?.id]);
 
-  const fetchBarbers = async () => {
-    const { data } = await supabase
-      .from("barbers")
-      .select("*")
-      .eq("organization_id", organization!.id)
-      .order("full_name");
-    setBarbers(data || []);
-  };
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    await supabase.from("barbers").insert({
-      full_name: fullName,
-      phone: phone || null,
-      email: email || null,
-      organization_id: organization!.id,
-    });
+  const resetForm = () => {
     setFullName("");
-    setPhone("");
     setEmail("");
-    setOpen(false);
-    setLoading(false);
-    fetchBarbers();
+    setPhone("");
   };
+
+  const handleAddBarber = async () => {
+    if (!organization?.id) {
+      toast.error("Organização não encontrada.");
+      return;
+    }
+
+    const normalizedName = fullName.trim();
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPhone = phone.trim();
+
+    if (!normalizedName) {
+      toast.error("Informe o nome do barbeiro.");
+      return;
+    }
+
+    if (!normalizedEmail) {
+      toast.error("Informe o e-mail do barbeiro.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const { data: existingBarber, error: existingBarberError } = await supabase
+        .from("barbers")
+        .select("id")
+        .eq("organization_id", organization.id)
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+
+      if (existingBarberError) {
+        console.error(
+          "[BarbersPage] existing barber lookup error:",
+          existingBarberError
+        );
+        toast.error("Não foi possível validar o e-mail do barbeiro.");
+        setSubmitting(false);
+        return;
+      }
+
+      if (existingBarber) {
+        toast.error("Já existe um barbeiro com esse e-mail nesta barbearia.");
+        setSubmitting(false);
+        return;
+      }
+
+      const { error } = await supabase.from("barbers").insert({
+        organization_id: organization.id,
+        full_name: normalizedName,
+        email: normalizedEmail,
+        phone: normalizedPhone || null,
+      });
+
+      if (error) {
+        console.error("[BarbersPage] insert barber error:", error);
+        toast.error(error.message || "Não foi possível adicionar o barbeiro.");
+        setSubmitting(false);
+        return;
+      }
+
+      toast.success("Barbeiro adicionado com sucesso.");
+      resetForm();
+      setDialogOpen(false);
+      await loadBarbers();
+    } catch (error) {
+      console.error("[BarbersPage] unexpected add barber error:", error);
+      toast.error("Erro inesperado ao adicionar o barbeiro.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDeleteBarber = async (barberId: string) => {
+    const confirmed = window.confirm(
+      "Tem certeza que deseja remover este barbeiro da organização?"
+    );
+
+    if (!confirmed) return;
+
+    const { error } = await supabase.from("barbers").delete().eq("id", barberId);
+
+    if (error) {
+      console.error("[BarbersPage] delete barber error:", error);
+      toast.error("Não foi possível remover o barbeiro.");
+      return;
+    }
+
+    toast.success("Barbeiro removido com sucesso.");
+    await loadBarbers();
+  };
+
+  const inviteLink = useMemo(() => {
+    if (!organization?.id) return "";
+    return `${window.location.origin}/barber/auth?org=${organization.id}`;
+  }, [organization?.id]);
+
+  const handleCopyLink = () => {
+    if (!inviteLink) return;
+    navigator.clipboard.writeText(inviteLink);
+    toast.success("Link de convite copiado para a área de transferência!");
+  };
+
+  const handleShareWhatsApp = () => {
+    if (!inviteLink) return;
+    const text = encodeURIComponent(
+      `Olá! Venha fazer parte da nossa equipe no Barber Chair Connect. Acesse o link para criar seu perfil de barbeiro: ${inviteLink}`
+    );
+    window.open(`https://wa.me/?text=${text}`, "_blank");
+  };
+
+  const barberCountLabel = useMemo(() => {
+    if (barbers.length === 1) return "1 barbeiro";
+    return `${barbers.length} barbeiros`;
+  }, [barbers.length]);
+
+  if (orgLoading || loading) {
+    return (
+      <div className="p-6 space-y-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Barbeiros</h1>
+          <p className="text-muted-foreground">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!organization) {
+    return (
+      <div className="p-6 space-y-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Barbeiros</h1>
+          <p className="text-muted-foreground">
+            Organização não encontrada para este login.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="p-6 space-y-6">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Barbers</h1>
-          <p className="text-sm text-muted-foreground">{barbers.length} tenant{barbers.length !== 1 ? "s" : ""}</p>
+          <h1 className="text-3xl font-bold tracking-tight">Barbeiros</h1>
+          <p className="text-muted-foreground">{barberCountLabel}</p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+
+        <Dialog
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) resetForm();
+          }}
+        >
           <DialogTrigger asChild>
-            <Button size="sm"><Plus className="mr-1.5 h-3.5 w-3.5" />Add Barber</Button>
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Adicionar barbeiro
+            </Button>
           </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>New Barber</DialogTitle></DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4">
+
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Adicionar barbeiro</DialogTitle>
+              <DialogDescription>
+                Cadastre o barbeiro na sua barbearia. Depois, ele poderá criar a
+                conta usando o link da barbearia e o vínculo será concluído
+                automaticamente.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label>Full Name</Label>
-                <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Marcus Johnson" required />
+                <label className="text-sm font-medium">Nome</label>
+                <Input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="João Pedro"
+                />
               </div>
+
               <div className="space-y-2">
-                <Label>Phone</Label>
-                <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 555 123 4567" />
+                <label className="text-sm font-medium">E-mail</label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="joaopedro123@gmail.com"
+                />
               </div>
+
               <div className="space-y-2">
-                <Label>Email</Label>
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="marcus@email.com" />
+                <label className="text-sm font-medium">Telefone</label>
+                <Input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(91) 99999-9999"
+                />
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>Create Barber</Button>
-            </form>
+
+              <div className="rounded-xl border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">Link da barbearia</p>
+                <p className="mt-1 break-all text-muted-foreground">
+                  {inviteLink}
+                </p>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  resetForm();
+                  setDialogOpen(false);
+                }}
+                disabled={submitting}
+              >
+                Cancelar
+              </Button>
+
+              <Button onClick={handleAddBarber} disabled={submitting}>
+                {submitting ? "Adicionando..." : "Adicionar barbeiro"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
 
-      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {barbers.map((barber) => (
-          <motion.div key={barber.id} variants={itemVariants}>
-            <div className="station-card">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-secondary">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{barber.full_name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{barber.phone || barber.email || "No contact"}</p>
-                </div>
-              </div>
+      <Card className="bg-muted/30 border-dashed rounded-2xl">
+        <CardContent className="p-5 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="space-y-1.5 text-center md:text-left">
+            <h3 className="font-semibold text-base">Convidar Barbeiros</h3>
+            <p className="text-sm text-muted-foreground">
+              Compartilhe este link para que novos barbeiros se vinculem à sua organização.
+            </p>
+            <div className="mt-2 bg-background/50 px-3 py-1.5 rounded-lg border text-xs font-mono break-all text-primary/80">
+              {inviteLink}
             </div>
-          </motion.div>
-        ))}
-      </motion.div>
+          </div>
+          <div className="flex gap-3 shrink-0">
+            <Button
+              variant="outline"
+              className="gap-2 rounded-xl"
+              onClick={handleCopyLink}
+            >
+              <Copy className="h-4 w-4" />
+              Copiar Link
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 rounded-xl text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-200"
+              onClick={handleShareWhatsApp}
+            >
+              <Share2 className="h-4 w-4" />
+              WhatsApp
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-      {barbers.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <User className="mb-3 h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium text-foreground">No barbers yet</p>
-          <p className="text-xs text-muted-foreground">Add barbers to start assigning them to stations.</p>
+      {barbers.length === 0 ? (
+        <div className="rounded-2xl border border-border bg-card p-12 text-center shadow-sm">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+            <User className="h-6 w-6 text-muted-foreground" />
+          </div>
+
+          <h2 className="mt-4 text-xl font-semibold">Nenhum barbeiro ainda</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Adicione barbeiros para começar a usar o sistema.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {barbers.map((barber) => {
+            const isLinked = Boolean(barber.user_id && barber.barber_profile_id);
+
+            return (
+              <Card key={barber.id} className="rounded-2xl shadow-sm">
+                <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-3">
+                    <div>
+                      <h3 className="text-lg font-semibold">{barber.full_name}</h3>
+                      <p className="text-sm text-muted-foreground">
+                        ID operacional: {barber.id}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Mail className="h-4 w-4" />
+                        <span>{barber.email || "E-mail não informado"}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-4 w-4" />
+                        <span>{barber.phone || "Telefone não informado"}</span>
+                      </div>
+
+                      <div className="text-sm">
+                        {isLinked ? (
+                          <span className="text-emerald-600 font-medium">
+                            Login vinculado ao perfil do barbeiro
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 font-medium">
+                            Aguardando o barbeiro criar a conta pelo link da
+                            barbearia
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      variant="destructive"
+                      className="gap-2"
+                      onClick={() => void handleDeleteBarber(barber.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remover
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

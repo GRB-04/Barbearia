@@ -1,25 +1,124 @@
-import { useState, useEffect } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Plus, User } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ArrowLeft,
+  CalendarClock,
+  CheckCircle2,
+  Clock3,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Wrench,
+} from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import type { Tables, Enums } from "@/integrations/supabase/types";
 
-type Chair = Tables<"chairs">;
-type Barber = Tables<"barbers">;
-type Contract = Tables<"contracts">;
-type Location = Tables<"locations">;
+type ChairStatus = "available" | "occupied" | "maintenance";
 
-interface ChairWithContract extends Chair {
-  activeContract?: Contract & { barber?: Barber };
+interface LocationRow {
+  id: string;
+  organization_id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  status: string | null;
+  capacity: number | null;
+  operating_hours: OperatingHours;
 }
+
+interface ChairRow {
+  id: string;
+  location_id: string;
+  identifier: string;
+  status: ChairStatus;
+  resources: Record<string, unknown> | null;
+}
+
+type DayKey = "0" | "1" | "2" | "3" | "4" | "5" | "6";
+
+interface DaySchedule {
+  enabled: boolean;
+  open: string | null;
+  close: string | null;
+  price: number | null;
+}
+
+type OperatingHours = Record<DayKey, DaySchedule>;
+
+interface ChairResources {
+  mirror?: boolean;
+  sink?: boolean;
+  air_conditioning?: boolean;
+}
+
+const dayLabels: Record<DayKey, string> = {
+  "0": "Domingo",
+  "1": "Segunda",
+  "2": "Terça",
+  "3": "Quarta",
+  "4": "Quinta",
+  "5": "Sexta",
+  "6": "Sábado",
+};
+
+const defaultOperatingHours: OperatingHours = {
+  "0": { enabled: false, open: null, close: null, price: 50 },
+  "1": { enabled: true, open: "08:00", close: "18:00", price: 50 },
+  "2": { enabled: true, open: "08:00", close: "18:00", price: 50 },
+  "3": { enabled: true, open: "08:00", close: "18:00", price: 50 },
+  "4": { enabled: true, open: "08:00", close: "22:00", price: 60 },
+  "5": { enabled: true, open: "08:00", close: "22:00", price: 80 },
+  "6": { enabled: true, open: "08:00", close: "22:00", price: 80 },
+};
+
+const statusMeta: Record<
+  ChairStatus,
+  {
+    label: string;
+    dotClass: string;
+    textClass: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }
+> = {
+  available: {
+    label: "Disponível",
+    dotClass: "bg-emerald-500",
+    textClass: "text-emerald-700",
+    icon: CheckCircle2,
+  },
+  occupied: {
+    label: "Ocupada",
+    dotClass: "bg-amber-500",
+    textClass: "text-amber-700",
+    icon: Clock3,
+  },
+  maintenance: {
+    label: "Manutenção",
+    dotClass: "bg-rose-500",
+    textClass: "text-rose-700",
+    icon: Wrench,
+  },
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -28,214 +127,767 @@ const containerVariants = {
 
 const itemVariants = {
   hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: [0.2, 0, 0, 1] as const } },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.2, ease: [0.2, 0, 0, 1] as const },
+  },
 };
 
-const statusColors: Record<string, string> = {
-  available: "bg-available",
-  occupied: "bg-occupied",
-  maintenance: "bg-maintenance",
-};
+function parseOperatingHours(value: unknown): OperatingHours {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return defaultOperatingHours;
+  }
+
+  const source = value as Record<string, unknown>;
+  const result: Partial<OperatingHours> = {};
+
+  (Object.keys(defaultOperatingHours) as DayKey[]).forEach((day) => {
+    const rawDay = source[day];
+
+    if (!rawDay || typeof rawDay !== "object" || Array.isArray(rawDay)) {
+      result[day] = defaultOperatingHours[day];
+      return;
+    }
+
+    const dayData = rawDay as Record<string, unknown>;
+
+    result[day] = {
+      enabled: Boolean(dayData.enabled),
+      open: typeof dayData.open === "string" ? dayData.open : null,
+      close: typeof dayData.close === "string" ? dayData.close : null,
+      price: typeof dayData.price === "number" ? dayData.price : 50,
+    };
+  });
+
+  return result as OperatingHours;
+}
+
+function parseResources(value: unknown): ChairResources {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const record = value as Record<string, unknown>;
+
+  return {
+    mirror: Boolean(record.mirror),
+    sink: Boolean(record.sink),
+    air_conditioning: Boolean(record.air_conditioning),
+  };
+}
+
+function buildResources(resources: ChairResources) {
+  return {
+    mirror: Boolean(resources.mirror),
+    sink: Boolean(resources.sink),
+    air_conditioning: Boolean(resources.air_conditioning),
+  };
+}
 
 export default function LocationDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { organization } = useOrganization();
-  const [location, setLocation] = useState<Location | null>(null);
-  const [chairs, setChairs] = useState<ChairWithContract[]>([]);
-  const [barbers, setBarbers] = useState<Barber[]>([]);
+
+  const [location, setLocation] = useState<LocationRow | null>(null);
+  const [chairs, setChairs] = useState<ChairRow[]>([]);
+  const [operatingHours, setOperatingHours] =
+    useState<OperatingHours>(defaultOperatingHours);
+
+  const [loadingPage, setLoadingPage] = useState(true);
+  const [savingHours, setSavingHours] = useState(false);
+
   const [addChairOpen, setAddChairOpen] = useState(false);
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [selectedChair, setSelectedChair] = useState<ChairWithContract | null>(null);
-  const [newChairId, setNewChairId] = useState("");
-  const [assignBarberId, setAssignBarberId] = useState("");
-  const [assignPrice, setAssignPrice] = useState("");
-  const [assignCycle, setAssignCycle] = useState<Enums<"billing_cycle">>("weekly");
-  const [assignStartDate, setAssignStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [loading, setLoading] = useState(false);
+  const [editChairOpen, setEditChairOpen] = useState(false);
+  const [creatingChair, setCreatingChair] = useState(false);
+  const [savingChair, setSavingChair] = useState(false);
+
+  const [newChairIdentifier, setNewChairIdentifier] = useState("");
+  const [newChairStatus, setNewChairStatus] =
+    useState<ChairStatus>("available");
+  const [newChairResources, setNewChairResources] = useState<ChairResources>({
+    mirror: false,
+    sink: false,
+    air_conditioning: false,
+  });
+
+  const [selectedChair, setSelectedChair] = useState<ChairRow | null>(null);
+  const [editChairIdentifier, setEditChairIdentifier] = useState("");
+  const [editChairStatus, setEditChairStatus] =
+    useState<ChairStatus>("available");
+  const [editChairResources, setEditChairResources] = useState<ChairResources>({
+    mirror: false,
+    sink: false,
+    air_conditioning: false,
+  });
 
   useEffect(() => {
-    if (organization && id) {
-      fetchAll();
-    }
-  }, [organization, id]);
+    if (!organization?.id || !id) return;
+    fetchAll();
+  }, [organization?.id, id]);
 
   const fetchAll = async () => {
-    const [locRes, chairRes, contractRes, barberRes] = await Promise.all([
-      supabase.from("locations").select("*").eq("id", id!).single(),
-      supabase.from("chairs").select("*").eq("location_id", id!).order("identifier"),
-      supabase.from("contracts").select("*, barbers(*)").eq("organization_id", organization!.id).in("status", ["active", "pending"]),
-      supabase.from("barbers").select("*").eq("organization_id", organization!.id),
-    ]);
+    if (!organization?.id || !id) return;
 
-    setLocation(locRes.data);
-    setBarbers(barberRes.data || []);
+    setLoadingPage(true);
 
-    const contracts = (contractRes.data || []) as (Contract & { barbers: Barber })[];
-    const enriched: ChairWithContract[] = (chairRes.data || []).map((chair) => {
-      const contract = contracts.find((c) => c.chair_id === chair.id);
-      return {
-        ...chair,
-        activeContract: contract ? { ...contract, barber: contract.barbers } : undefined,
-      };
+    try {
+      const [locationRes, chairsRes] = await Promise.all([
+        supabase
+          .from("locations")
+          .select("*")
+          .eq("id", id)
+          .eq("organization_id", organization.id)
+          .single(),
+        supabase
+          .from("chairs")
+          .select("*")
+          .eq("location_id", id)
+          .order("identifier", { ascending: true }),
+      ]);
+
+      if (locationRes.error) {
+        toast.error(locationRes.error.message);
+        setLocation(null);
+        setChairs([]);
+        return;
+      }
+
+      if (chairsRes.error) {
+        toast.error(chairsRes.error.message);
+        setChairs([]);
+        return;
+      }
+
+      const locationData = locationRes.data as unknown as LocationRow;
+      const chairData = ((chairsRes.data ?? []) as unknown as ChairRow[]) || [];
+
+      setLocation(locationData);
+      setChairs(chairData);
+      setOperatingHours(parseOperatingHours(locationData.operating_hours));
+    } catch (error) {
+      console.error("[LocationDetailPage] fetchAll error:", error);
+      toast.error("Não foi possível carregar o local.");
+    } finally {
+      setLoadingPage(false);
+    }
+  };
+
+  const capacity = location?.capacity ?? 2;
+  const totalChairs = chairs.length;
+  const availableCount = chairs.filter((chair) => chair.status === "available").length;
+  const occupiedCount = chairs.filter((chair) => chair.status === "occupied").length;
+  const maintenanceCount = chairs.filter((chair) => chair.status === "maintenance").length;
+  const remainingSlots = Math.max(capacity - totalChairs, 0);
+  const isAtCapacity = totalChairs >= capacity;
+
+  const suggestedIdentifier = useMemo(() => {
+    return `Cadeira ${totalChairs + 1}`;
+  }, [totalChairs]);
+
+  useEffect(() => {
+    if (addChairOpen && !newChairIdentifier.trim()) {
+      setNewChairIdentifier(suggestedIdentifier);
+    }
+  }, [addChairOpen, suggestedIdentifier, newChairIdentifier]);
+
+  const resetCreateForm = () => {
+    setNewChairIdentifier("");
+    setNewChairStatus("available");
+    setNewChairResources({
+      mirror: false,
+      sink: false,
+      air_conditioning: false,
     });
-    setChairs(enriched);
   };
 
-  const handleAddChair = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    await supabase.from("chairs").insert({ identifier: newChairId, location_id: id! });
-    setNewChairId("");
-    setAddChairOpen(false);
-    setLoading(false);
-    fetchAll();
-  };
+  const handleOpenEdit = (chair: ChairRow) => {
+    const resources = parseResources(chair.resources);
 
-  const handleAssign = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedChair) return;
-    setLoading(true);
-    await supabase.from("contracts").insert({
-      barber_id: assignBarberId,
-      chair_id: selectedChair.id,
-      organization_id: organization!.id,
-      price: parseFloat(assignPrice),
-      billing_cycle: assignCycle,
-      start_date: assignStartDate,
-      status: "active",
-    });
-    await supabase.from("chairs").update({ status: "occupied" as Enums<"chair_status"> }).eq("id", selectedChair.id);
-    setAssignOpen(false);
-    setLoading(false);
-    fetchAll();
-  };
-
-  const openAssign = (chair: ChairWithContract) => {
     setSelectedChair(chair);
-    setAssignBarberId("");
-    setAssignPrice("");
-    setAssignCycle("weekly");
-    setAssignStartDate(new Date().toISOString().split("T")[0]);
-    setAssignOpen(true);
+    setEditChairIdentifier(chair.identifier ?? "");
+    setEditChairStatus(chair.status);
+    setEditChairResources(resources);
+    setEditChairOpen(true);
   };
 
-  if (!location) return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
+  const handleCreateChair = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  const occupiedCount = chairs.filter((c) => c.status === "occupied").length;
+    if (!id) {
+      toast.error("Local inválido.");
+      return;
+    }
+
+    if (isAtCapacity) {
+      toast.error(`Este local já atingiu o limite de ${capacity} cadeiras.`);
+      return;
+    }
+
+    if (!newChairIdentifier.trim()) {
+      toast.error("Informe o identificador da cadeira.");
+      return;
+    }
+
+    setCreatingChair(true);
+
+    try {
+      const { error } = await supabase.from("chairs").insert({
+        location_id: id,
+        identifier: newChairIdentifier.trim(),
+        status: newChairStatus,
+        resources: buildResources(newChairResources),
+      } as any);
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Cadeira criada com sucesso.");
+      setAddChairOpen(false);
+      resetCreateForm();
+      await fetchAll();
+    } catch (error) {
+      console.error("[LocationDetailPage] handleCreateChair error:", error);
+      toast.error("Não foi possível criar a cadeira.");
+    } finally {
+      setCreatingChair(false);
+    }
+  };
+
+  const handleSaveChair = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedChair) {
+      toast.error("Nenhuma cadeira selecionada.");
+      return;
+    }
+
+    if (!editChairIdentifier.trim()) {
+      toast.error("Informe o identificador da cadeira.");
+      return;
+    }
+
+    setSavingChair(true);
+
+    try {
+      const { error } = await supabase
+        .from("chairs")
+        .update({
+          identifier: editChairIdentifier.trim(),
+          status: editChairStatus,
+          resources: buildResources(editChairResources),
+        } as any)
+        .eq("id", selectedChair.id);
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Cadeira atualizada com sucesso.");
+      setEditChairOpen(false);
+      setSelectedChair(null);
+      await fetchAll();
+    } catch (error) {
+      console.error("[LocationDetailPage] handleSaveChair error:", error);
+      toast.error("Não foi possível atualizar a cadeira.");
+    } finally {
+      setSavingChair(false);
+    }
+  };
+
+  const updateDaySchedule = (
+    day: DayKey,
+    field: keyof DaySchedule,
+    value: boolean | string | null
+  ) => {
+    setOperatingHours((current) => ({
+      ...current,
+      [day]: {
+        ...current[day],
+        [field]: value,
+      },
+    }));
+  };
+
+  const saveOperatingHours = async () => {
+    if (!location?.id) return;
+
+    for (const day of Object.keys(operatingHours) as DayKey[]) {
+      const schedule = operatingHours[day];
+
+      if (schedule.enabled) {
+        if (!schedule.open || !schedule.close) {
+          toast.error(`Defina abertura e fechamento para ${dayLabels[day]}.`);
+          return;
+        }
+
+        if (schedule.close <= schedule.open) {
+          toast.error(
+            `O fechamento de ${dayLabels[day]} deve ser maior que a abertura.`
+          );
+          return;
+        }
+      }
+    }
+
+    setSavingHours(true);
+
+    try {
+      const { error } = await supabase
+        .from("locations")
+        .update({
+          operating_hours: operatingHours,
+        } as any)
+        .eq("id", location.id);
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success("Horário de funcionamento salvo com sucesso.");
+      await fetchAll();
+    } catch (error) {
+      console.error("[LocationDetailPage] saveOperatingHours error:", error);
+      toast.error("Não foi possível salvar o horário de funcionamento.");
+    } finally {
+      setSavingHours(false);
+    }
+  };
+
+  if (loadingPage) {
+    return <div className="p-6 text-sm text-muted-foreground">Carregando local...</div>;
+  }
+
+  if (!location) {
+    return <div className="p-6 text-sm text-muted-foreground">Local não encontrado.</div>;
+  }
 
   return (
-    <div className="p-6">
-      <Link to="/locations" className="mb-4 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+    <div className="p-6 space-y-6">
+      <Link
+        to="/locations"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
         <ArrowLeft className="h-3.5 w-3.5" />
-        Locations
+        Locais
       </Link>
 
-      <div className="mb-6 flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">{location.name}</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">
+            {location.name}
+          </h1>
           <p className="text-sm text-muted-foreground">
-            {occupiedCount}/{chairs.length} stations occupied
+            {[location.address, location.city].filter(Boolean).join(", ") || "Sem endereço"}
+          </p>
+
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
+              Capacidade: {totalChairs}/{capacity}
+            </span>
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
+              Disponíveis: {availableCount}
+            </span>
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
+              Ocupadas: {occupiedCount}
+            </span>
+            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
+              Manutenção: {maintenanceCount}
+            </span>
+          </div>
+
+          <p className="mt-2 text-xs text-muted-foreground">
+            {remainingSlots > 0
+              ? `${remainingSlots} vaga${remainingSlots > 1 ? "s" : ""} restante${remainingSlots > 1 ? "s" : ""} neste local.`
+              : "Este local atingiu a capacidade máxima de cadeiras."}
           </p>
         </div>
-        <Dialog open={addChairOpen} onOpenChange={setAddChairOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm"><Plus className="mr-1.5 h-3.5 w-3.5" />Add Station</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader><DialogTitle>New Station</DialogTitle></DialogHeader>
-            <form onSubmit={handleAddChair} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Station Identifier</Label>
-                <Input value={newChairId} onChange={(e) => setNewChairId(e.target.value)} placeholder="#01" required />
-              </div>
-              <Button type="submit" className="w-full" disabled={loading}>Create Station</Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchAll}
+            className="rounded-xl"
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Atualizar
+          </Button>
+
+          <Dialog
+            open={addChairOpen}
+            onOpenChange={(open) => {
+              setAddChairOpen(open);
+              if (!open) resetCreateForm();
+            }}
+          >
+            <DialogTrigger asChild>
+              <Button size="sm" disabled={isAtCapacity} className="rounded-xl">
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
+                Adicionar cadeira
+              </Button>
+            </DialogTrigger>
+
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nova cadeira</DialogTitle>
+              </DialogHeader>
+
+              <form onSubmit={handleCreateChair} className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Identificador</Label>
+                  <Input
+                    value={newChairIdentifier}
+                    onChange={(e) => setNewChairIdentifier(e.target.value)}
+                    placeholder="Cadeira 1"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <Select
+                    value={newChairStatus}
+                    onValueChange={(value) => setNewChairStatus(value as ChairStatus)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Selecione o status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="available">Disponível</SelectItem>
+                      <SelectItem value="occupied">Ocupada</SelectItem>
+                      <SelectItem value="maintenance">Manutenção</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Recursos</Label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(newChairResources.mirror)}
+                      onChange={(e) =>
+                        setNewChairResources((prev) => ({
+                          ...prev,
+                          mirror: e.target.checked,
+                        }))
+                      }
+                    />
+                    Espelho
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(newChairResources.sink)}
+                      onChange={(e) =>
+                        setNewChairResources((prev) => ({
+                          ...prev,
+                          sink: e.target.checked,
+                        }))
+                      }
+                    />
+                    Pia
+                  </label>
+
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(newChairResources.air_conditioning)}
+                      onChange={(e) =>
+                        setNewChairResources((prev) => ({
+                          ...prev,
+                          air_conditioning: e.target.checked,
+                        }))
+                      }
+                    />
+                    Ar-condicionado
+                  </label>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={creatingChair}>
+                  {creatingChair ? "Criando..." : "Criar cadeira"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      {/* Station Grid */}
-      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        {chairs.map((chair) => (
-          <motion.div key={chair.id} variants={itemVariants}>
-            <div
-              className={cn("station-card relative", chair.status === "available" && "cursor-pointer")}
-              onClick={() => chair.status === "available" && openAssign(chair)}
-            >
-              {/* Status dot */}
-              <div className={cn("absolute right-3 top-3 h-2 w-2 rounded-full", statusColors[chair.status])} />
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-4">
+        <div className="flex items-center gap-2">
+          <CalendarClock className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              Horário de funcionamento
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Configure os dias e horários do ponto. Isso será usado para validar contratos e alocações.
+            </p>
+          </div>
+        </div>
 
-              <p className="text-xs font-mono text-muted-foreground mb-1">{chair.identifier}</p>
+        <div className="grid gap-3">
+          {(Object.keys(operatingHours) as DayKey[]).map((day) => {
+            const schedule = operatingHours[day];
 
-              {chair.activeContract?.barber ? (
-                <>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <User className="h-3.5 w-3.5 text-muted-foreground" />
-                    <p className="text-sm font-medium text-foreground truncate">{chair.activeContract.barber.full_name}</p>
+            return (
+              <div
+                key={day}
+                className="grid gap-3 rounded-2xl border border-border bg-muted/20 p-4 md:grid-cols-[160px_120px_1fr_1fr]"
+              >
+                <div className="flex items-center text-sm font-medium text-foreground">
+                  {dayLabels[day]}
+                </div>
+
+                <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={schedule.enabled}
+                    onChange={(e) =>
+                      updateDaySchedule(day, "enabled", e.target.checked)
+                    }
+                  />
+                  Aberto
+                </label>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Abertura</Label>
+                  <Input
+                    type="time"
+                    value={schedule.open ?? ""}
+                    onChange={(e) =>
+                      updateDaySchedule(day, "open", e.target.value || null)
+                    }
+                    disabled={!schedule.enabled}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Fechamento</Label>
+                  <Input
+                    type="time"
+                    value={schedule.close ?? ""}
+                    onChange={(e) =>
+                      updateDaySchedule(day, "close", e.target.value || null)
+                    }
+                    disabled={!schedule.enabled}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Label className="text-xs">Preço (R$)</Label>
+                  <Input
+                    type="number"
+                    value={schedule.price ?? ""}
+                    onChange={(e) =>
+                      updateDaySchedule(day, "price", e.target.value ? parseFloat(e.target.value) : null)
+                    }
+                    disabled={!schedule.enabled}
+                    placeholder="50.00"
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex justify-end">
+          <Button onClick={saveOperatingHours} disabled={savingHours} className="rounded-xl">
+            {savingHours ? "Salvando..." : "Salvar horários"}
+          </Button>
+        </div>
+      </div>
+
+      {chairs.length > 0 ? (
+        <motion.div
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+        >
+          {chairs.map((chair) => {
+            const meta = statusMeta[chair.status];
+            const Icon = meta.icon;
+            const resources = parseResources(chair.resources);
+
+            return (
+              <motion.div key={chair.id} variants={itemVariants}>
+                <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{chair.identifier}</p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className={cn("h-2.5 w-2.5 rounded-full", meta.dotClass)} />
+                        <span className={cn("text-xs font-medium", meta.textClass)}>
+                          {meta.label}
+                        </span>
+                      </div>
+                    </div>
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleOpenEdit(chair)}
+                      className="h-8 px-2 rounded-xl"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  <p className="price text-sm text-foreground">
-                    ${Number(chair.activeContract.price).toFixed(2)}
-                    <span className="text-xs text-muted-foreground">/{chair.activeContract.billing_cycle}</span>
-                  </p>
-                </>
-              ) : (
-                <p className="text-sm text-muted-foreground mt-1">
-                  {chair.status === "maintenance" ? "Under maintenance" : "Available"}
-                </p>
-              )}
-            </div>
-          </motion.div>
-        ))}
-      </motion.div>
 
-      {chairs.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <p className="text-sm font-medium text-foreground">No stations yet</p>
-          <p className="text-xs text-muted-foreground">Add stations to this location to start assigning barbers.</p>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>Status: {meta.label}</span>
+                  </div>
+
+                  <div className="mt-4 space-y-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      Recursos
+                    </p>
+
+                    <div className="flex flex-wrap gap-2">
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs",
+                          resources.mirror
+                            ? "border-foreground/20 bg-secondary text-secondary-foreground"
+                            : "border-border text-muted-foreground"
+                        )}
+                      >
+                        Espelho {resources.mirror ? "✓" : "—"}
+                      </span>
+
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs",
+                          resources.sink
+                            ? "border-foreground/20 bg-secondary text-secondary-foreground"
+                            : "border-border text-muted-foreground"
+                        )}
+                      >
+                        Pia {resources.sink ? "✓" : "—"}
+                      </span>
+
+                      <span
+                        className={cn(
+                          "rounded-full border px-2.5 py-1 text-xs",
+                          resources.air_conditioning
+                            ? "border-foreground/20 bg-secondary text-secondary-foreground"
+                            : "border-border text-muted-foreground"
+                        )}
+                      >
+                        Ar-condicionado {resources.air_conditioning ? "✓" : "—"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </motion.div>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-20 text-center rounded-3xl border border-border bg-card shadow-sm">
+          <p className="text-sm font-medium text-foreground">Nenhuma cadeira ainda</p>
+          <p className="text-xs text-muted-foreground">
+            Adicione cadeiras para começar a gerenciar este local.
+          </p>
         </div>
       )}
 
-      {/* Assign Dialog */}
-      <Dialog open={assignOpen} onOpenChange={setAssignOpen}>
+      <Dialog
+        open={editChairOpen}
+        onOpenChange={(open) => {
+          setEditChairOpen(open);
+          if (!open) setSelectedChair(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Assign Station {selectedChair?.identifier}</DialogTitle>
+            <DialogTitle>Editar cadeira {selectedChair?.identifier}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleAssign} className="space-y-4">
+
+          <form onSubmit={handleSaveChair} className="space-y-4">
             <div className="space-y-2">
-              <Label>Barber</Label>
-              <Select value={assignBarberId} onValueChange={setAssignBarberId} required>
-                <SelectTrigger><SelectValue placeholder="Select barber" /></SelectTrigger>
+              <Label>Identificador</Label>
+              <Input
+                value={editChairIdentifier}
+                onChange={(e) => setEditChairIdentifier(e.target.value)}
+                placeholder="Cadeira 1"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Status</Label>
+              <Select
+                value={editChairStatus}
+                onValueChange={(value) => setEditChairStatus(value as ChairStatus)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione o status" />
+                </SelectTrigger>
                 <SelectContent>
-                  {barbers.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.full_name}</SelectItem>
-                  ))}
+                  <SelectItem value="available">Disponível</SelectItem>
+                  <SelectItem value="occupied">Ocupada</SelectItem>
+                  <SelectItem value="maintenance">Manutenção</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Price</Label>
-                <Input type="number" step="0.01" value={assignPrice} onChange={(e) => setAssignPrice(e.target.value)} placeholder="250.00" required />
-              </div>
-              <div className="space-y-2">
-                <Label>Billing Cycle</Label>
-                <Select value={assignCycle} onValueChange={(v) => setAssignCycle(v as Enums<"billing_cycle">)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+
+            <div className="space-y-3">
+              <Label>Recursos</Label>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={Boolean(editChairResources.mirror)}
+                  onChange={(e) =>
+                    setEditChairResources((prev) => ({
+                      ...prev,
+                      mirror: e.target.checked,
+                    }))
+                  }
+                />
+                Espelho
+              </label>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={Boolean(editChairResources.sink)}
+                  onChange={(e) =>
+                    setEditChairResources((prev) => ({
+                      ...prev,
+                      sink: e.target.checked,
+                    }))
+                  }
+                />
+                Pia
+              </label>
+
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={Boolean(editChairResources.air_conditioning)}
+                  onChange={(e) =>
+                    setEditChairResources((prev) => ({
+                      ...prev,
+                      air_conditioning: e.target.checked,
+                    }))
+                  }
+                />
+                Ar-condicionado
+              </label>
             </div>
-            <div className="space-y-2">
-              <Label>Start Date</Label>
-              <Input type="date" value={assignStartDate} onChange={(e) => setAssignStartDate(e.target.value)} required />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading || !assignBarberId || !assignPrice}>
-              Assign Station
+
+            <Button type="submit" className="w-full" disabled={savingChair}>
+              {savingChair ? "Salvando..." : "Salvar alterações"}
             </Button>
           </form>
         </DialogContent>

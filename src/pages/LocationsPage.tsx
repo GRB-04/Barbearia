@@ -1,124 +1,271 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { MapPin, Plus, ChevronRight } from "lucide-react";
-import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
-import type { Tables } from "@/integrations/supabase/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { MapPin, Plus } from "lucide-react";
+import { toast } from "sonner";
 
-type Location = Tables<"locations">;
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.2, ease: [0.2, 0, 0, 1] as const } },
-};
+interface Location {
+  id: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  capacity: number;
+  organization_id: string;
+}
 
 export default function LocationsPage() {
   const { organization } = useOrganization();
+
   const [locations, setLocations] = useState<Location[]>([]);
+  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [state, setState] = useState("");
+  const [capacity, setCapacity] = useState(2);
 
   useEffect(() => {
-    if (organization) fetchLocations();
-  }, [organization]);
+    if (!organization?.id) return;
+    void fetchLocations();
+  }, [organization?.id]);
 
   const fetchLocations = async () => {
-    const { data } = await supabase
+    if (!organization?.id) return;
+
+    setLoading(true);
+
+    const { data, error } = await supabase
       .from("locations")
       .select("*")
-      .eq("organization_id", organization!.id)
+      .eq("organization_id", organization.id)
       .order("created_at", { ascending: false });
-    setLocations(data || []);
+
+    if (error) {
+      toast.error(error.message);
+      setLocations([]);
+      setLoading(false);
+      return;
+    }
+
+    setLocations((data as Location[]) || []);
+    setLoading(false);
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    await supabase.from("locations").insert({
-      name,
-      address,
-      city,
-      organization_id: organization!.id,
-    });
+  const resetForm = () => {
     setName("");
     setAddress("");
     setCity("");
+    setState("");
+    setCapacity(2);
+  };
+
+  const handleCreateLocation = async () => {
+    if (!organization?.id) {
+      toast.error("OrganizaÃƒÂ§ÃƒÂ£o nÃƒÂ£o encontrada.");
+      return;
+    }
+
+    if (!name.trim() || !address.trim() || !city.trim() || !state.trim()) {
+      toast.error("Preencha todos os campos.");
+      return;
+    }
+
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      toast.error("A capacidade deve ser um numero maior que zero.");
+      return;
+    }
+
+    setCreating(true);
+
+    const defaultOperatingHours = {
+      monday:    { open: true,  start: "09:00", end: "19:00" },
+      tuesday:   { open: true,  start: "09:00", end: "19:00" },
+      wednesday: { open: true,  start: "09:00", end: "19:00" },
+      thursday:  { open: true,  start: "09:00", end: "19:00" },
+      friday:    { open: true,  start: "09:00", end: "19:00" },
+      saturday:  { open: true,  start: "09:00", end: "17:00" },
+      sunday:    { open: false, start: "09:00", end: "13:00" },
+    };
+
+    const { error } = await supabase.from("locations").insert({
+      name: name.trim(),
+      address: address.trim(),
+      city: city.trim(),
+      state: state.trim(),
+      capacity,
+      organization_id: organization.id,
+      status: "active",
+      operating_hours: defaultOperatingHours,
+    });
+
+    if (error) {
+      toast.error(error.message);
+      setCreating(false);
+      return;
+    }
+
+    toast.success("Location criada com sucesso.");
     setOpen(false);
-    setLoading(false);
-    fetchLocations();
+    resetForm();
+    await fetchLocations();
+    setCreating(false);
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
+    <div className="p-6 space-y-6">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Locations</h1>
-          <p className="text-sm text-muted-foreground">{locations.length} location{locations.length !== 1 ? "s" : ""}</p>
+          <h1 className="text-3xl font-bold tracking-tight">Locations</h1>
+          <p className="text-muted-foreground">
+            {locations.length} {locations.length === 1 ? "location" : "locations"}
+          </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+
+        <Dialog
+          open={open}
+          onOpenChange={(nextOpen) => {
+            setOpen(nextOpen);
+            if (!nextOpen) resetForm();
+          }}
+        >
           <DialogTrigger asChild>
-            <Button size="sm"><Plus className="mr-1.5 h-3.5 w-3.5" />Add Location</Button>
+            <Button className="rounded-xl">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Location
+            </Button>
           </DialogTrigger>
-          <DialogContent>
+
+          <DialogContent className="sm:max-w-[560px]">
             <DialogHeader>
               <DialogTitle>New Location</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleCreate} className="space-y-4">
+
+            <div className="space-y-4">
               <div className="space-y-2">
-                <Label>Name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Downtown Shop" required />
+                <label className="text-sm font-medium">Name</label>
+                <Input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Barbearia dos irmÃƒÂ£os"
+                />
               </div>
+
               <div className="space-y-2">
-                <Label>Address</Label>
-                <Input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Main St" />
+                <label className="text-sm font-medium">Address</label>
+                <Input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Av. Almirante Barroso, 250"
+                />
               </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">City</label>
+                  <Input
+                    value={city}
+                    onChange={(e) => setCity(e.target.value)}
+                    placeholder="BelÃƒÂ©m"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">State</label>
+                  <Input
+                    value={state}
+                    onChange={(e) => setState(e.target.value)}
+                    placeholder="PA"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label>City</Label>
-                <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Austin" />
+                <label className="text-sm font-medium">Capacity</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={capacity}
+                  onChange={(e) => setCapacity(Number(e.target.value))}
+                  placeholder="2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Informe a quantidade mÃƒÂ¡xima de cadeiras dessa unidade. Valor entre 1 e 5.
+                </p>
               </div>
-              <Button type="submit" className="w-full" disabled={loading}>{loading ? "Creating..." : "Create Location"}</Button>
-            </form>
+
+              <Button
+                onClick={handleCreateLocation}
+                className="w-full"
+                disabled={creating}
+              >
+                {creating ? "Creating..." : "Create Location"}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>
 
-      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {locations.map((loc) => (
-          <motion.div key={loc.id} variants={itemVariants}>
-            <Link to={`/locations/${loc.id}`} className="station-card flex items-center justify-between group">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-md bg-secondary">
-                  <MapPin className="h-4 w-4 text-muted-foreground" />
+      {loading ? (
+        <div className="rounded-2xl border bg-card p-6">
+          <p className="text-sm text-muted-foreground">Carregando locations...</p>
+        </div>
+      ) : locations.length === 0 ? (
+        <div className="rounded-2xl border bg-card p-10 text-center">
+          <MapPin className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm font-medium">Nenhuma location cadastrada</p>
+          <p className="text-xs text-muted-foreground">
+            Crie a primeira unidade da sua barbearia.
+          </p>
+        </div>
+      ) : (
+        <div className="grid gap-4">
+          {locations.map((location) => (
+            <Link
+              key={location.id}
+              to={`/locations/${location.id}`}
+              className="rounded-2xl border bg-card p-5 shadow-sm transition hover:shadow-md block"
+            >
+              <div className="flex items-start gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                  <MapPin className="h-5 w-5 text-muted-foreground" />
                 </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">{loc.name}</p>
-                  <p className="text-xs text-muted-foreground">{[loc.address, loc.city].filter(Boolean).join(", ") || "No address"}</p>
+
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-foreground">
+                    {location.name}
+                  </h2>
+
+                  <p className="text-sm text-muted-foreground">
+                    {location.address}
+                  </p>
+
+                  <p className="text-sm text-muted-foreground">
+                    {location.city}, {location.state}
+                  </p>
+
+                  <p className="mt-2 text-xs font-medium text-muted-foreground">
+                    Capacidade: {location.capacity}{" "}
+                    {location.capacity === 1 ? "cadeira" : "cadeiras"}
+                  </p>
                 </div>
               </div>
-              <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
             </Link>
-          </motion.div>
-        ))}
-      </motion.div>
-
-      {locations.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <MapPin className="mb-3 h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium text-foreground">No locations yet</p>
-          <p className="text-xs text-muted-foreground">Add your first location to start managing stations.</p>
+          ))}
         </div>
       )}
     </div>

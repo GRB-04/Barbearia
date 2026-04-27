@@ -1,41 +1,116 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { OrgProvider, useOrganization } from "@/hooks/useOrganization";
-import { BarberProfileProvider, useBarberProfile } from "@/hooks/useBarberProfile";
+import {
+  BarberProfileProvider,
+  useBarberProfile,
+} from "@/hooks/useBarberProfile";
+
 import AuthPage from "./pages/AuthPage";
 import OnboardingPage from "./pages/OnboardingPage";
 import AppLayout from "./components/AppLayout";
 import BarberLayout from "./components/BarberLayout";
+
 import LocationsPage from "./pages/LocationsPage";
 import LocationDetailPage from "./pages/LocationDetailPage";
 import BarbersPage from "./pages/BarbersPage";
 import ContractsPage from "./pages/ContractsPage";
+
 import BarberAuthPage from "./pages/barber/BarberAuthPage";
 import BarberDashboard from "./pages/barber/BarberDashboard";
-import BrowseStationsPage from "./pages/barber/BrowseStationsPage";
+import MyContractsPage from "./pages/barber/MyContractsPage";
 import MyBookingsPage from "./pages/barber/MyBookingsPage";
+import ClientsPage from "./pages/barber/ClientsPage";
+import CheckInPage from "./pages/barber/CheckInPage";
+import ClientHistoryPage from "./pages/barber/ClientHistoryPage";
+import ExplorePage from "./pages/barber/ExplorePage";
+import PaymentPage from "./pages/barber/PaymentPage";
+
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
+function LoadingScreen({
+  title = "Carregando...",
+  description = "O sistema está inicializando os dados da sessão.",
+}: {
+  title?: string;
+  description?: string;
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-8 shadow-sm">
+        <h1 className="text-lg font-semibold text-foreground">{title}</h1>
+        <p className="mt-2 text-sm text-muted-foreground">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function BarberAccessMissingScreen() {
+  const { signOut } = useAuth();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background px-6">
+      <div className="w-full max-w-md rounded-3xl border border-border bg-card p-8 shadow-sm space-y-4">
+        <h1 className="text-lg font-semibold text-foreground">
+          Conta não vinculada a uma barbearia
+        </h1>
+
+        <p className="text-sm text-muted-foreground">
+          Seu login foi criado, mas ainda não está vinculado a nenhuma barbearia.
+        </p>
+
+        <p className="text-sm text-muted-foreground">
+          Peça ao dono da barbearia para cadastrar você na lista de barbeiros e enviar o <strong>link de convite</strong>. Ao acessar o link, o vínculo será feito automaticamente.
+        </p>
+
+        <button
+          onClick={() => void signOut()}
+          className="mt-2 text-sm text-primary hover:underline"
+        >
+          Sair da conta
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function OwnerRoutes() {
   const { user, loading: authLoading } = useAuth();
   const { organization, loading: orgLoading } = useOrganization();
+  const { barberProfile, barber, loading: barberLoading } = useBarberProfile();
 
-  if (authLoading || (user && orgLoading)) {
+  if (authLoading || barberLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
+      <LoadingScreen description="Estamos verificando autenticação e perfil do usuário." />
     );
   }
 
-  if (!user) return <AuthPage />;
-  if (!organization) return <OnboardingPage />;
+  if (!user) {
+    return <AuthPage />;
+  }
+
+  const isOwner = !!organization && organization.owner_id === user.id;
+  const isOperationalBarber = !!barberProfile && !!barber;
+
+  if (isOperationalBarber && !isOwner) {
+    return <Navigate to="/barber/dashboard" replace />;
+  }
+
+  if (orgLoading) {
+    return (
+      <LoadingScreen description="Estamos carregando a organização do owner." />
+    );
+  }
+
+  if (!isOwner) {
+    return <OnboardingPage />;
+  }
 
   return (
     <Routes>
@@ -46,6 +121,7 @@ function OwnerRoutes() {
         <Route path="barbers" element={<BarbersPage />} />
         <Route path="contracts" element={<ContractsPage />} />
       </Route>
+
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
@@ -53,58 +129,99 @@ function OwnerRoutes() {
 
 function BarberRoutes() {
   const { user, loading: authLoading } = useAuth();
-  const { barberProfile, loading: profileLoading } = useBarberProfile();
+  const { organization } = useOrganization();
+  const { barberProfile, barber, loading: barberLoading } = useBarberProfile();
 
-  if (authLoading) {
+  if (authLoading || barberLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="text-sm text-muted-foreground">Loading...</p>
-      </div>
+      <LoadingScreen description="Estamos carregando o acesso do barbeiro." />
     );
+  }
+
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="auth" element={<BarberAuthPage />} />
+        <Route path="*" element={<Navigate to="/barber/auth" replace />} />
+      </Routes>
+    );
+  }
+
+  const isOwner = !!organization && organization.owner_id === user.id;
+  const hasBarberProfile = !!barberProfile;
+  const hasOperationalBarber = !!barber;
+
+  if (isOwner && !hasBarberProfile && !hasOperationalBarber) {
+    return <Navigate to="/locations" replace />;
+  }
+
+  if (!hasBarberProfile) {
+    return (
+      <Routes>
+        <Route path="auth" element={<BarberAuthPage />} />
+        <Route path="*" element={<Navigate to="/barber/auth" replace />} />
+      </Routes>
+    );
+  }
+
+  // Allow freelancers to enter even without a specific organization link
+  // They will see a limited dashboard but can still explore and book chairs.
+  if (!hasOperationalBarber) {
+    // We can still show a notice on the dashboard itself, but don't block access to the whole /barber/* app.
   }
 
   return (
     <Routes>
-      <Route path="auth" element={!user || !barberProfile ? <BarberAuthPage /> : <Navigate to="/barber/dashboard" replace />} />
-      {!user || (!profileLoading && !barberProfile) ? (
-        <Route path="*" element={<Navigate to="/barber/auth" replace />} />
-      ) : profileLoading ? (
-        <Route path="*" element={
-          <div className="flex min-h-screen items-center justify-center bg-background">
-            <p className="text-sm text-muted-foreground">Loading...</p>
-          </div>
-        } />
-      ) : (
-        <Route path="" element={<BarberLayout />}>
-          <Route path="dashboard" element={<BarberDashboard />} />
-          <Route path="browse" element={<BrowseStationsPage />} />
-          <Route path="bookings" element={<MyBookingsPage />} />
-          <Route index element={<Navigate to="/barber/dashboard" replace />} />
-        </Route>
-      )}
+      <Route
+        path="auth"
+        element={<Navigate to="/barber/dashboard" replace />}
+      />
+
+      <Route path="/" element={<BarberLayout />}>
+        <Route index element={<Navigate to="/barber/dashboard" replace />} />
+        <Route path="dashboard" element={<BarberDashboard />} />
+        <Route path="explore" element={<ExplorePage />} />
+        <Route path="contracts" element={<MyContractsPage />} />
+        <Route path="my-bookings" element={<MyBookingsPage />} />
+        <Route path="clients" element={<ClientsPage />} />
+        <Route
+          path="clients/:clientId/history"
+          element={<ClientHistoryPage />}
+        />
+        <Route path="checkin" element={<CheckInPage />} />
+        <Route path="payment/:bookingId" element={<PaymentPage />} />
+        <Route path="*" element={<Navigate to="/barber/dashboard" replace />} />
+      </Route>
     </Routes>
   );
 }
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <Toaster />
-      <Sonner />
-      <BrowserRouter>
-        <AuthProvider>
-          <OrgProvider>
-            <BarberProfileProvider>
-              <Routes>
-                <Route path="/barber/*" element={<BarberRoutes />} />
-                <Route path="/*" element={<OwnerRoutes />} />
-              </Routes>
-            </BarberProfileProvider>
-          </OrgProvider>
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-);
+const App = () => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
+          <AuthProvider>
+            <OrgProvider>
+              <BarberProfileProvider>
+                <Routes>
+                  <Route path="/barber/*" element={<BarberRoutes />} />
+                  <Route path="/*" element={<OwnerRoutes />} />
+                </Routes>
+              </BarberProfileProvider>
+            </OrgProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+};
 
 export default App;
