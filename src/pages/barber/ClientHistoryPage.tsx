@@ -14,6 +14,8 @@ interface CheckIn {
   duration_minutes: number | null;
   notes: string | null;
   status: string;
+  service_amount: number | null;
+  commission_amount: number | null;
 }
 
 export default function ClientHistoryPage() {
@@ -45,7 +47,7 @@ export default function ClientHistoryPage() {
 
       const { data, error } = await supabase
         .from("check_ins")
-        .select("*")
+        .select("*, service_amount, commission_amount")
         .eq("client_id", clientId)
         .eq("status", "finished")
         .order("finished_at", { ascending: false });
@@ -138,6 +140,15 @@ export default function ClientHistoryPage() {
                 <div className="flex items-start gap-2 text-sm text-muted-foreground">
                   <FileText className="w-4 h-4 mt-0.5" />
                   <span>{item.notes}</span>
+                </div>
+              )}
+
+              {(item.service_amount != null && item.service_amount > 0) && (
+                <div className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">Valor do serviço</span>
+                  <span className="font-semibold text-foreground">
+                    {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(item.service_amount)}
+                  </span>
                 </div>
               )}
             </div>

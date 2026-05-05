@@ -6,9 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Scissors } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 
 export default function BarberAuthPage() {
-  const { signIn, signUp } = useAuth();
+  const { user, loading: authLoading, signIn, signUp, signOut } = useAuth();
   const { claimBarberInvitation, refreshBarberProfile, createBarberProfile } = useBarberProfile();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -44,7 +45,12 @@ export default function BarberAuthPage() {
         }
 
         if (organizationId) {
-          await claimBarberInvitation(organizationId, fullName, phone);
+          try {
+            await claimBarberInvitation(organizationId, fullName, phone);
+          } catch (claimErr: any) {
+            await createBarberProfile(fullName, phone, newUser.id, newUser.email);
+            toast.error("Conta criada, mas não foi possível vincular. Peça ao dono da barbearia para adicionar seu email.");
+          }
         } else {
           // Trigger creates the profile, but we upsert to ensure it's up to date
           await createBarberProfile(fullName, phone, newUser.id, newUser.email);
@@ -57,11 +63,15 @@ export default function BarberAuthPage() {
       await signIn(email, password);
 
       if (organizationId) {
-        await claimBarberInvitation(
-          organizationId,
-          fullName || undefined,
-          phone || undefined
-        );
+        try {
+          await claimBarberInvitation(
+            organizationId,
+            fullName || undefined,
+            phone || undefined
+          );
+        } catch (claimErr: any) {
+          toast.error(claimErr?.message || "Convite não encontrado. Verifique se o dono já te adicionou.");
+        }
       } else {
         // If profile is missing (e.g. signup failed halfway before), create it now
         try {
@@ -88,6 +98,64 @@ export default function BarberAuthPage() {
       setLoading(false);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <p className="text-sm text-muted-foreground">Carregando...</p>
+      </div>
+    );
+  }
+
+  if (user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="w-full max-w-sm space-y-6 p-6 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-foreground">
+            <Scissors className="h-5 w-5 text-background" />
+          </div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Você já está conectado</h1>
+          <p className="text-sm text-muted-foreground">Logado como <span className="font-medium text-foreground">{user.email}</span></p>
+
+          <div className="space-y-3 pt-4">
+            {isInviteFlow && (
+              <Button 
+                className="w-full bg-foreground text-background hover:bg-foreground/90" 
+                onClick={async () => {
+                  setLoading(true);
+                  setError("");
+                  try {
+                    await claimBarberInvitation(organizationId!, fullName || undefined, phone || undefined);
+                    toast.success("Vinculado à barbearia com sucesso!");
+                    navigate("/barber/dashboard");
+                  } catch (err: any) {
+                    setError(err?.message || "Convite não encontrado. Peça ao dono da barbearia para adicionar seu email primeiro.");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+              >
+                {loading ? "Vinculando..." : "Aceitar Convite da Barbearia"}
+              </Button>
+            )}
+            <Button variant="outline" className="w-full" onClick={() => navigate("/barber/dashboard")}>
+              Ir para o Dashboard
+            </Button>
+          </div>
+          <div className="pt-4">
+            <button
+              onClick={() => void signOut()}
+              className="text-sm text-muted-foreground hover:text-primary hover:underline"
+            >
+              Não é {user.email}? Sair e entrar com outra conta
+            </button>
+          </div>
+          {error && <p className="text-sm text-destructive mt-4">{error}</p>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">

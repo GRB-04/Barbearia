@@ -23,6 +23,7 @@ import {
   User,
   Pencil,
   FileText,
+  ShieldOff,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -46,6 +47,23 @@ function normalizeOptional(value: string) {
   return trimmed === "" ? null : trimmed;
 }
 
+function safeFormatDate(dateStr: string | null, formatStr: string) {
+  if (!dateStr) return null;
+  try {
+    // Handle YYYY-MM-DD by appending time to avoid timezone shifts
+    const date = new Date(dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`);
+    if (isNaN(date.getTime())) return null;
+    return format(date, formatStr, { locale: ptBR });
+  } catch (e) {
+    return null;
+  }
+}
+
+const DASHBOARD_CACHE_KEY = "barber-dashboard-cache-v1";
+function clearDashboardCache() {
+  sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+}
+
 export default function ClientsPage() {
   const { barberProfile } = useBarberProfile();
   const navigate = useNavigate();
@@ -62,6 +80,7 @@ export default function ClientsPage() {
   const [creating, setCreating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [anonymizingId, setAnonymizingId] = useState<string | null>(null);
 
   const [selectedClient, setSelectedClient] = useState<BarberClient | null>(null);
 
@@ -175,6 +194,7 @@ export default function ClientsPage() {
       toast.success("Cliente criado com sucesso.");
       setCreateOpen(false);
       resetForm();
+      clearDashboardCache();
       await fetchClients();
     } catch (error) {
       console.error("[ClientsPage] handleCreate error:", error);
@@ -243,12 +263,52 @@ export default function ClientsPage() {
       }
 
       toast.success("Cliente removido com sucesso.");
+      clearDashboardCache();
       await fetchClients();
     } catch (error) {
       console.error("[ClientsPage] handleDelete error:", error);
       toast.error("Não foi possível remover o cliente.");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleAnonymize = async (client: BarberClient) => {
+    const confirmed = window.confirm(
+      `Anonimizar dados de "${client.full_name}"?\n\nEsta ação substitui os dados pessoais por valores genéricos, conforme a LGPD Art. 18. A ação não pode ser desfeita.`
+    );
+    if (!confirmed) return;
+
+    setAnonymizingId(client.id);
+    try {
+      const { error } = await supabase
+        .from("barber_clients")
+        .update({
+          full_name: "Cliente Anonimizado",
+          phone: null,
+          email: null,
+          notes: null,
+          first_appointment_date: null,
+          is_anonymized: true,
+          anonymized_at: new Date().toISOString(),
+        } as any)
+        .eq("id", client.id);
+
+      if (error) throw error;
+
+      // Audit log
+      await supabase.from("audit_logs").insert({
+        organization_id: barberProfile?.organization_id ?? null,
+        action: "anonymize_client",
+        details: { client_id: client.id, reason: "LGPD Art. 18 — solicitação do titular" },
+      } as any);
+
+      toast.success("Dados do cliente anonimizados com sucesso (LGPD).");
+      await fetchClients();
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao anonimizar cliente.");
+    } finally {
+      setAnonymizingId(null);
     }
   };
 
@@ -496,12 +556,8 @@ export default function ClientsPage() {
                   <div className="flex items-start gap-2 text-sm text-muted-foreground">
                     <CalendarDays className="mt-0.5 h-4 w-4" />
                     <span>
-                      {client.first_appointment_date
-                        ? `Primeiro atendimento em ${format(
-                            new Date(`${client.first_appointment_date}T00:00:00`),
-                            "dd 'de' MMMM 'de' yyyy",
-                            { locale: ptBR }
-                          )}`
+                      {safeFormatDate(client.first_appointment_date, "dd 'de' MMMM 'de' yyyy") 
+                        ? `Primeiro atendimento em ${safeFormatDate(client.first_appointment_date, "dd 'de' MMMM 'de' yyyy")}`
                         : "Sem data de primeiro atendimento"}
                     </span>
                   </div>
@@ -509,110 +565,125 @@ export default function ClientsPage() {
                   {client.notes && (
                     <p className="text-xs text-muted-foreground">{client.notes}</p>
                   )}
-                </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={() => navigate(`/barber/clients/${client.id}/history`)}
+                      disabled={!!(client as any).is_anonymized}
+                    >
+                      <FileText className="mr-1.5 h-4 w-4" />
+                      Histórico
+                    </Button>
 
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    className="rounded-xl"
-                    onClick={() => navigate(`/barber/clients/${client.id}/history`)}
-                  >
-                    <FileText className="mr-1.5 h-4 w-4" />
-                    Histórico
-                  </Button>
+                    <Dialog
+                      open={editOpen && selectedClient?.id === client.id}
+                      onOpenChange={(open) => {
+                        setEditOpen(open);
+                        if (!open) resetForm();
+                      }}
+                    >
+                      <DialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          className="rounded-xl"
+                          disabled={!!(client as any).is_anonymized}
+                          onClick={() => {
+                            fillEditForm(client);
+                            setEditOpen(true);
+                          }}
+                        >
+                          <Pencil className="mr-1.5 h-4 w-4" />
+                          {(client as any).is_anonymized ? "Anonimizado" : "Editar"}
+                        </Button>
+                      </DialogTrigger>
 
-                  <Dialog
-                    open={editOpen && selectedClient?.id === client.id}
-                    onOpenChange={(open) => {
-                      setEditOpen(open);
-                      if (!open) resetForm();
-                    }}
-                  >
-                    <DialogTrigger asChild>
+                      <DialogContent className="max-w-xl">
+                        <DialogHeader>
+                          <DialogTitle>Editar cliente</DialogTitle>
+                        </DialogHeader>
+
+                        <form onSubmit={handleSave} className="space-y-4">
+                          <div className="space-y-2">
+                            <Label>Nome</Label>
+                            <Input
+                              value={fullName}
+                              onChange={(e) => setFullName(e.target.value)}
+                              placeholder="Nome completo"
+                              required
+                            />
+                          </div>
+
+                          <div className="grid gap-4 md:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Telefone</Label>
+                              <Input
+                                value={phone}
+                                onChange={(e) => setPhone(e.target.value)}
+                                placeholder="(91) 99999-9999"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label>Email</Label>
+                              <Input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                placeholder="cliente@email.com"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>Data do primeiro atendimento</Label>
+                            <Input
+                              type="date"
+                              value={firstAppointmentDate}
+                              onChange={(e) => setFirstAppointmentDate(e.target.value)}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>Observações</Label>
+                            <Input
+                              value={notes}
+                              onChange={(e) => setNotes(e.target.value)}
+                              placeholder="Informações adicionais"
+                            />
+                          </div>
+
+                          <Button type="submit" className="w-full" disabled={saving}>
+                            {saving ? "Salvando..." : "Salvar alterações"}
+                          </Button>
+                        </form>
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* LGPD Anonymize button */}
+                    {!(client as any).is_anonymized && (
                       <Button
                         variant="outline"
-                        className="rounded-xl"
-                        onClick={() => {
-                          fillEditForm(client);
-                          setEditOpen(true);
-                        }}
+                        className="rounded-xl text-orange-600 hover:text-orange-700 border-orange-200 hover:bg-orange-50"
+                        disabled={anonymizingId === client.id}
+                        onClick={() => void handleAnonymize(client)}
+                        title="Anonimizar dados (LGPD Art. 18)"
                       >
-                        <Pencil className="mr-1.5 h-4 w-4" />
-                        Editar
+                        <ShieldOff className="mr-1.5 h-4 w-4" />
+                        {anonymizingId === client.id ? "Anonimizando..." : "Anonimizar"}
                       </Button>
-                    </DialogTrigger>
+                    )}
 
-                    <DialogContent className="max-w-xl">
-                      <DialogHeader>
-                        <DialogTitle>Editar cliente</DialogTitle>
-                      </DialogHeader>
-
-                      <form onSubmit={handleSave} className="space-y-4">
-                        <div className="space-y-2">
-                          <Label>Nome</Label>
-                          <Input
-                            value={fullName}
-                            onChange={(e) => setFullName(e.target.value)}
-                            placeholder="Nome completo"
-                            required
-                          />
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label>Telefone</Label>
-                            <Input
-                              value={phone}
-                              onChange={(e) => setPhone(e.target.value)}
-                              placeholder="(91) 99999-9999"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label>Email</Label>
-                            <Input
-                              type="email"
-                              value={email}
-                              onChange={(e) => setEmail(e.target.value)}
-                              placeholder="cliente@email.com"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Data do primeiro atendimento</Label>
-                          <Input
-                            type="date"
-                            value={firstAppointmentDate}
-                            onChange={(e) => setFirstAppointmentDate(e.target.value)}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Observações</Label>
-                          <Input
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                            placeholder="Informações adicionais"
-                          />
-                        </div>
-
-                        <Button type="submit" className="w-full" disabled={saving}>
-                          {saving ? "Salvando..." : "Salvar alterações"}
-                        </Button>
-                      </form>
-                    </DialogContent>
-                  </Dialog>
-
-                  <Button
-                    variant="outline"
-                    className="rounded-xl text-destructive hover:text-destructive"
-                    disabled={deletingId === client.id}
-                    onClick={() => handleDelete(client.id)}
-                  >
-                    <Trash2 className="mr-1.5 h-4 w-4" />
-                    {deletingId === client.id ? "Removendo..." : "Excluir"}
-                  </Button>
+                    <Button
+                      variant="outline"
+                      className="rounded-xl text-destructive hover:text-destructive"
+                      disabled={deletingId === client.id || !!(client as any).is_anonymized}
+                      onClick={() => void handleDelete(client.id)}
+                    >
+                      <Trash2 className="mr-1.5 h-4 w-4" />
+                      {deletingId === client.id ? "Removendo..." : "Excluir"}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>

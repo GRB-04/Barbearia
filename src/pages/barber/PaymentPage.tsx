@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { getPaymentByBookingId, simulatePaymentConfirmation, createBookingPayment, type Payment } from "@/services/payments";
-import { Loader2, QrCode, Copy, CheckCircle2, AlertCircle, ArrowLeft } from "lucide-react";
+import { getPaymentByBookingId, createBookingPayment, simulatePaymentConfirmation, type Payment } from "@/services/payments";
+import { Loader2, QrCode, CheckCircle2, AlertCircle, ArrowLeft, Clock } from "lucide-react";
 
 export default function PaymentPage() {
   const { bookingId } = useParams<{ bookingId: string }>();
@@ -16,8 +16,8 @@ export default function PaymentPage() {
   const [payment, setPayment] = useState<Payment | null>(null);
   const [booking, setBooking] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number>(300); // 5 minutes in seconds
-  const [isConfirming, setIsConfirming] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number>(300);
+
 
   useEffect(() => {
     if (!bookingId) return;
@@ -136,32 +136,16 @@ export default function PaymentPage() {
     return () => clearInterval(interval);
   }, [bookingId, payment?.status, toast]);
 
-  const handleCopyPix = () => {
-    const pixKey = "00020126330014BR.GOV.BCB.PIX0111123456789015204000053039865802BR5913BARBER_CHAIR6009SAO_PAULO62070503***6304ABCD";
-    navigator.clipboard.writeText(pixKey);
+  const handleCopyPixId = () => {
+    if (!payment?.id) return;
+    // Copia o ID do pagamento como referência para o pagador
+    navigator.clipboard.writeText(payment.reference ?? payment.id);
     toast({
-      title: "Copiado!",
-      description: "Código Pix Copia e Cola copiado para a área de transferência.",
+      title: "Referência copiada!",
+      description: "Use esta referência ao confirmar o pagamento.",
     });
   };
 
-  const handleSimulatePayment = async () => {
-    if (!payment) return;
-    
-    try {
-      setIsConfirming(true);
-      await simulatePaymentConfirmation(payment.id);
-      // The polling will pick up the change
-    } catch (error: any) {
-      toast({
-        title: "Erro na simulação",
-        description: error.message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsConfirming(false);
-    }
-  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -250,37 +234,42 @@ export default function PaymentPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-8 md:flex-row">
-                <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border bg-white p-6 shadow-sm">
-                  <div className="relative mb-4 aspect-square w-48 bg-muted/20 flex items-center justify-center rounded-xl">
-                    <QrCode className="h-40 w-40 text-slate-800" />
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/60 opacity-0 transition-opacity hover:opacity-100">
-                      <p className="text-xs font-bold uppercase tracking-widest text-slate-900">Exemplo Pix</p>
-                    </div>
+                {/* Left — Payment reference block */}
+                <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border bg-muted/20 p-6 shadow-sm gap-4">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10">
+                    <QrCode className="h-10 w-10 text-primary" />
                   </div>
-                  <p className="text-xs font-medium text-muted-foreground">Escaneie o QR Code no seu app de banco</p>
+                  <div className="text-center space-y-1">
+                    <p className="text-sm font-semibold">Referência do pagamento</p>
+                    <p className="font-mono text-xs text-muted-foreground break-all">
+                      {payment.reference ?? payment.id.slice(0, 20) + "..."}
+                    </p>
+                  </div>
                 </div>
 
+                {/* Right — Status */}
                 <div className="flex flex-1 flex-col justify-center space-y-6">
-                  <div className="space-y-2">
-                    <p className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Pix Copia e Cola</p>
-                    <div className="flex gap-2">
-                      <div className="flex-1 truncate rounded-lg border bg-muted/30 px-3 py-2 text-sm font-mono">
-                        00020126330014BR.GOV.BCB.PIX0111123456789015204000053039865802BR5913BARBER_CHAIR6009SAO_PAULO62070503***6304ABCD
-                      </div>
-                      <Button size="icon" variant="outline" onClick={handleCopyPix}>
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-
                   <div className="rounded-xl bg-amber-50 p-4 border border-amber-100">
                     <div className="flex items-center gap-2 text-amber-800">
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-sm font-bold">Aguardando pagamento...</span>
+                      <span className="text-sm font-bold">Aguardando confirmação...</span>
                     </div>
                     <p className="mt-2 text-sm text-amber-700">
                       Sua reserva expira em <span className="font-mono font-bold">{formatTime(timeLeft)}</span>
                     </p>
+                  </div>
+
+                  <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-4">
+                    <div className="flex items-start gap-2">
+                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Como funciona?</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Realize o pagamento pelo método acordado com a barbearia.
+                          Após a confirmação, sua reserva será ativada automaticamente.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -290,22 +279,32 @@ export default function PaymentPage() {
           {!isPaid && !isExpired && (
             <CardFooter className="flex flex-col border-t bg-muted/20 pt-6">
               <p className="mb-4 text-center text-xs text-muted-foreground">
-                Ao realizar o pagamento, sua reserva será confirmada instantaneamente.
+                O status será atualizado automaticamente após a confirmação do pagamento.
               </p>
-              <div className="flex w-full gap-3">
+              <div className="flex w-full gap-4">
                 <Button variant="outline" className="flex-1" onClick={() => navigate("/barber/explore")}>
-                  Pagar depois
+                  Voltar para explorar
                 </Button>
                 <Button 
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                  onClick={handleSimulatePayment}
-                  disabled={isConfirming}
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white" 
+                  onClick={async () => {
+                    try {
+                      await simulatePaymentConfirmation(payment.id);
+                      toast({
+                        title: "Pagamento Simulado",
+                        description: "O status do pagamento foi alterado para pago."
+                      });
+                      // Refresh the page to show confirmed state
+                      window.location.reload();
+                    } catch (e: any) {
+                      toast({
+                        title: "Erro",
+                        description: "Não foi possível simular o pagamento.",
+                        variant: "destructive"
+                      });
+                    }
+                  }}
                 >
-                  {isConfirming ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="mr-2 h-4 w-4" />
-                  )}
                   Simular Pagamento
                 </Button>
               </div>

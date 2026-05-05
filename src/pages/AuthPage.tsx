@@ -7,7 +7,7 @@ import { LayoutGrid } from "lucide-react";
 
 export default function AuthPage() {
   const { signIn, signUp } = useAuth();
-  const [isSignUp, setIsSignUp] = useState(true);
+  const [isSignUp, setIsSignUp] = useState(false); // default: login mode
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,7 +25,7 @@ export default function AuthPage() {
       }
     } catch (err: any) {
       if (err?.status === 429 || err?.message?.includes("rate limit")) {
-        setError("Muitas tentativas (Erro 429). O limite de envio de e-mails do Supabase foi atingido. Aguarde 1 hora ou desative 'Confirm email' no dashboard do Supabase.");
+        setError("Muitas tentativas. Aguarde alguns minutos e tente novamente.");
       } else if (err?.message?.includes("Invalid login")) {
         setError("Credenciais inválidas. Verifique seu e-mail e senha.");
       } else {
@@ -47,48 +47,71 @@ export default function AuthPage() {
           <p className="text-sm text-muted-foreground text-center">Gerencie sua barbearia, unidades e barbeiros.</p>
         </div>
 
+        {/* Tab switcher — large, clearly clickable buttons */}
+        <div className="grid grid-cols-2 rounded-xl border border-border overflow-hidden">
+          <button
+            id="tab-entrar"
+            type="button"
+            onClick={() => { setError(""); setIsSignUp(false); }}
+            className={`py-3 text-sm font-semibold transition-colors ${
+              !isSignUp
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+          >
+            Entrar
+          </button>
+          <button
+            id="tab-criar"
+            type="button"
+            onClick={() => { setError(""); setIsSignUp(true); }}
+            className={`py-3 text-sm font-semibold transition-colors ${
+              isSignUp
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+          >
+            Criar Conta
+          </button>
+        </div>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-sm font-medium">E-mail</Label>
+            <Label htmlFor="owner-email" className="text-sm font-medium">E-mail</Label>
             <Input
-              id="email"
+              id="owner-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="dono@barbearia.com"
               required
+              autoComplete="email"
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-sm font-medium">Senha</Label>
+            <Label htmlFor="owner-password" className="text-sm font-medium">Senha</Label>
             <Input
-              id="password"
+              id="owner-password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
               minLength={6}
+              autoComplete="current-password"
             />
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
 
-          <Button type="submit" className="w-full" disabled={loading}>
+          <Button id="btn-submit-owner" type="submit" className="w-full" disabled={loading}>
             {loading ? "Carregando..." : isSignUp ? "Criar Conta" : "Entrar"}
           </Button>
         </form>
 
-        <p className="text-center text-sm text-muted-foreground">
-          {isSignUp ? "Já tem uma conta?" : "Ainda não tem conta?"}{" "}
-          <button type="button" onClick={() => { setError(""); setIsSignUp(!isSignUp); }} className="text-primary hover:underline font-medium">
-            {isSignUp ? "Entrar" : "Criar Conta"}
-          </button>
-        </p>
-
-        <div className="pt-4 border-t border-border mt-4 text-center">
+        <div className="pt-4 border-t border-border text-center">
           <p className="text-xs text-muted-foreground mb-2">Você é um Barbeiro?</p>
-          <a href="/barber/auth" className="text-sm text-primary hover:underline font-medium">
+          <a id="link-barber-portal" href="/barber/auth" className="text-sm text-primary hover:underline font-medium">
             Acessar Portal do Barbeiro
           </a>
         </div>

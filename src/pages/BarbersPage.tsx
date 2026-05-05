@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, User, Mail, Phone, Trash2, Copy, Share2 } from "lucide-react";
+import { Plus, User, Mail, Phone, Trash2, Copy, Share2, Star, Shield } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,13 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 
 type BarberRow = {
@@ -34,6 +41,8 @@ export default function BarbersPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [avgRatings, setAvgRatings] = useState<Record<string, number>>({});
+  const [changingRoleId, setChangingRoleId] = useState<string | null>(null);
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -66,6 +75,31 @@ export default function BarbersPage() {
 
     setBarbers((data as BarberRow[]) ?? []);
     setLoading(false);
+
+    // Load ratings for each barber_profile_id
+    const profileIds = ((data as BarberRow[]) ?? [])
+      .map((b) => b.barber_profile_id)
+      .filter(Boolean) as string[];
+
+    if (profileIds.length > 0) {
+      const { data: ratingsData } = await supabase
+        .from("barber_ratings")
+        .select("barber_profile_id, rating")
+        .in("barber_profile_id", profileIds);
+
+      if (ratingsData && ratingsData.length > 0) {
+        const grouped: Record<string, number[]> = {};
+        for (const r of ratingsData as { barber_profile_id: string; rating: number }[]) {
+          if (!grouped[r.barber_profile_id]) grouped[r.barber_profile_id] = [];
+          grouped[r.barber_profile_id].push(r.rating);
+        }
+        const avgs: Record<string, number> = {};
+        for (const [pid, ratings] of Object.entries(grouped)) {
+          avgs[pid] = ratings.reduce((s, v) => s + v, 0) / ratings.length;
+        }
+        setAvgRatings(avgs);
+      }
+    }
   };
 
   useEffect(() => {
@@ -124,11 +158,20 @@ export default function BarbersPage() {
         return;
       }
 
+      // Auto-link se o barbeiro já tiver criado a conta
+      const { data: profile } = await supabase
+        .from("barber_profiles")
+        .select("id, user_id")
+        .eq("email", normalizedEmail)
+        .maybeSingle();
+
       const { error } = await supabase.from("barbers").insert({
         organization_id: organization.id,
         full_name: normalizedName,
         email: normalizedEmail,
         phone: normalizedPhone || null,
+        barber_profile_id: profile?.id || null,
+        user_id: profile?.user_id || null,
       });
 
       if (error) {
@@ -157,16 +200,63 @@ export default function BarbersPage() {
 
     if (!confirmed) return;
 
+    const { data: relatedContracts } = await supabase
+      .from("contracts")
+      .select("id")
+      .eq("barber_id", barberId)
+      .limit(1);
+
+    if (relatedContracts && relatedContracts.length > 0) {
+      toast.error(
+        "Não é possível remover este barbeiro pois ele possui contratos vinculados. Exclua os contratos primeiro na aba 'Contratos'."
+      );
+      return;
+    }
+
     const { error } = await supabase.from("barbers").delete().eq("id", barberId);
 
     if (error) {
       console.error("[BarbersPage] delete barber error:", error);
-      toast.error("Não foi possível remover o barbeiro.");
+      if (error.code === "23503") {
+        toast.error("Não é possível remover: o barbeiro possui histórico (atendimentos/reservas).");
+      } else {
+        toast.error("Não foi possível remover o barbeiro. " + error.message);
+      }
       return;
     }
 
     toast.success("Barbeiro removido com sucesso.");
     await loadBarbers();
+  };
+
+  const handleChangeRole = async (barberId: string, newRole: string) => {
+    setChangingRoleId(barberId);
+    try {
+      const { error } = await supabase
+        .from("barbers")
+        .update({ role: newRole } as any)
+        .eq("id", barberId);
+
+      if (error) throw error;
+
+      // Also update barber_profiles if linked
+      const barber = barbers.find((b) => b.id === barberId);
+      if (barber?.barber_profile_id) {
+        await supabase
+          .from("barber_profiles")
+          .update({ role: newRole } as any)
+          .eq("id", barber.barber_profile_id);
+      }
+
+      toast.success("Papel atualizado com sucesso.");
+      setBarbers((prev) =>
+        prev.map((b) => (b.id === barberId ? { ...b, role: newRole as any } : b))
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao atualizar papel.");
+    } finally {
+      setChangingRoleId(null);
+    }
   };
 
   const inviteLink = useMemo(() => {
@@ -359,7 +449,28 @@ export default function BarbersPage() {
                 <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
                   <div className="space-y-3">
                     <div>
-                      <h3 className="text-lg font-semibold">{barber.full_name}</h3>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-lg font-semibold">{barber.full_name}</h3>
+                        {barber.barber_profile_id && avgRatings[barber.barber_profile_id] != null && (
+                          <span className="flex items-center gap-1 text-sm text-amber-500">
+                            <Star className="h-4 w-4 fill-amber-400" />
+                            {avgRatings[barber.barber_profile_id].toFixed(1)}
+                          </span>
+                        )}
+                        {/* Role badge */}
+                        <span className={[
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+                          (barber.role as string) === "receptionist" ? "bg-blue-100 text-blue-700" :
+                          (barber.role as string) === "manager" ? "bg-purple-100 text-purple-700" :
+                          (barber.role as string) === "owner" ? "bg-amber-100 text-amber-700" :
+                          "bg-muted text-muted-foreground"
+                        ].join(" ")}>
+                          <Shield className="h-3 w-3" />
+                          {(barber.role as string) === "receptionist" ? "Recepcionista" :
+                           (barber.role as string) === "manager" ? "Gerente" :
+                           (barber.role as string) === "owner" ? "Owner" : "Barbeiro"}
+                        </span>
+                      </div>
                       <p className="text-sm text-muted-foreground">
                         ID operacional: {barber.id}
                       </p>
@@ -391,7 +502,24 @@ export default function BarbersPage() {
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2 flex-wrap">
+                    {/* Role changer */}
+                    {(barber.role as string) !== "owner" && (
+                      <Select
+                        value={(barber.role as string) || "barber"}
+                        onValueChange={(val) => void handleChangeRole(barber.id, val)}
+                        disabled={changingRoleId === barber.id}
+                      >
+                        <SelectTrigger className="h-9 w-40 rounded-xl text-xs">
+                          <SelectValue placeholder="Papel" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="barber">Barbeiro</SelectItem>
+                          <SelectItem value="manager">Gerente</SelectItem>
+                          <SelectItem value="receptionist">Recepcionista</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
                     <Button
                       variant="destructive"
                       className="gap-2"

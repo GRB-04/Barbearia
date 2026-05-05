@@ -1,12 +1,26 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { LayoutGrid, MapPin, User, FileText, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  MapPin,
+  User,
+  FileText,
+  LogOut,
+  DollarSign,
+  Settings,
+  ShieldCheck,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import NotificationBell from "@/components/NotificationBell";
 
 const navItems = [
-  { to: "/locations", label: "Locations", icon: MapPin },
-  { to: "/barbers", label: "Barbers", icon: User },
-  { to: "/contracts", label: "Contracts", icon: FileText },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/locations", label: "Locais", icon: MapPin },
+  { to: "/barbers", label: "Barbeiros", icon: User },
+  { to: "/contracts", label: "Contratos", icon: FileText },
+  { to: "/financial", label: "Financeiro", icon: DollarSign },
+  { to: "/audit", label: "Auditoria", icon: ShieldCheck },
+  { to: "/settings", label: "Configurações", icon: Settings },
 ];
 
 export default function AppLayout() {
@@ -16,12 +30,16 @@ export default function AppLayout() {
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
       <aside className="flex w-60 flex-col border-r border-border bg-sidebar">
-        <div className="flex items-center gap-2 px-4 py-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
-            <LayoutGrid className="h-3.5 w-3.5 text-primary-foreground" />
+        <div className="flex items-center justify-between gap-2 px-4 py-4">
+          <div className="flex items-center gap-2">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
+              <LayoutDashboard className="h-3.5 w-3.5 text-primary-foreground" />
+            </div>
+            <span className="text-sm font-semibold tracking-tight text-foreground">Barber Chair</span>
           </div>
-          <span className="text-sm font-semibold tracking-tight text-foreground">Station</span>
+          <NotificationBell />
         </div>
+
 
         <nav className="flex-1 space-y-0.5 px-2 py-2">
           {navItems.map(({ to, label, icon: Icon }) => (
@@ -49,7 +67,7 @@ export default function AppLayout() {
             className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground"
           >
             <LogOut className="h-4 w-4" />
-            Sign Out
+            Sair
           </button>
         </div>
       </aside>

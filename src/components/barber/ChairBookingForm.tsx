@@ -105,14 +105,14 @@ export default function ChairBookingForm({
   onCancel,
   onSuccess,
 }: Props) {
-  const tomorrow = useMemo(() => {
+  const today = useMemo(() => {
     const d = new Date();
-    d.setDate(d.getDate() + 1);
+    // Start with current date, default time to 09:00 for UI convenience
     d.setHours(9, 0, 0, 0);
     return d;
   }, []);
 
-  const [date, setDate] = useState(toDateStr(tomorrow));
+  const [date, setDate] = useState(toDateStr(today));
   const [start, setStart] = useState("09:00");
   const [end, setEnd] = useState("14:00");
   const [notes, setNotes] = useState("");
@@ -302,7 +302,7 @@ export default function ChairBookingForm({
           <Input
             type="date"
             value={date}
-            min={toDateStr(tomorrow)}
+            min={toDateStr(today)}
             onChange={(e) => setDate(e.target.value)}
           />
         </div>

@@ -9,16 +9,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, UserPlus } from "lucide-react";
+import { Plus, UserPlus, Star } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+
+const DASHBOARD_CACHE_KEY = "barber-dashboard-cache-v1";
+function clearDashboardCache() {
+  sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+}
 
 type BarberClient = {
   id: string;
@@ -114,6 +120,14 @@ export default function CheckInPage() {
   const [savingCheckIn, setSavingCheckIn] = useState(false);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [finishingId, setFinishingId] = useState<string | null>(null);
+
+  // Finish modal state
+  const [finishTarget, setFinishTarget] = useState<EnrichedCheckIn | null>(null);
+  const [serviceAmount, setServiceAmount] = useState("");
+  const [rating, setRating] = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [submittingFinish, setSubmittingFinish] = useState(false);
 
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [newClientName, setNewClientName] = useState("");
@@ -235,7 +249,7 @@ export default function CheckInPage() {
       // Auto-select the new client
       const newClient = data as BarberClient;
       setSelectedClientId(newClient.id);
-      
+      clearDashboardCache();
       await loadData();
     } catch (error) {
       toast.error("Erro ao cadastrar cliente.");
@@ -355,6 +369,7 @@ export default function CheckInPage() {
       toast.success("Check-in registrado com sucesso.");
       setSelectedClientId("");
       setNotes("");
+      clearDashboardCache();
       await loadData();
     } catch (error) {
       const message =
@@ -382,6 +397,7 @@ export default function CheckInPage() {
       }
 
       toast.success("Atendimento iniciado.");
+      clearDashboardCache();
       await loadData();
     } catch (error) {
       const message =
@@ -393,37 +409,85 @@ export default function CheckInPage() {
   }
 
   async function handleFinishAttendance(checkIn: EnrichedCheckIn) {
-    setFinishingId(checkIn.id);
+    // Open modal instead of directly finishing
+    setFinishTarget(checkIn);
+    setServiceAmount("");
+    setRating(0);
+    setRatingComment("");
+  }
+
+  async function handleConfirmFinish() {
+    if (!finishTarget) return;
+    setSubmittingFinish(true);
+
+    const checkIn = finishTarget;
+    const finishedAt = new Date().toISOString();
+    const durationMinutes = calculateDurationMinutes(checkIn.started_at, finishedAt);
+    const svcAmount = parseFloat(serviceAmount) || 0;
+
+    // Fetch contract commission rate
+    let commissionAmount = 0;
+    if (checkIn.contract_id) {
+      const { data: contractData } = await supabase
+        .from("contracts")
+        .select("commission_type, commission_value")
+        .eq("id", checkIn.contract_id)
+        .maybeSingle();
+
+      if (contractData) {
+        if (contractData.commission_type === "percentage") {
+          commissionAmount = svcAmount * (Number(contractData.commission_value) / 100);
+        } else {
+          commissionAmount = Number(contractData.commission_value);
+        }
+      }
+    }
 
     try {
-      const finishedAt = new Date().toISOString();
-      const durationMinutes = calculateDurationMinutes(
-        checkIn.started_at,
-        finishedAt
-      );
-
       const { error } = await supabase
         .from("check_ins")
         .update({
           finished_at: finishedAt,
           duration_minutes: durationMinutes,
           status: "finished",
+          service_amount: svcAmount,
+          commission_amount: commissionAmount,
         })
         .eq("id", checkIn.id);
 
-      if (error) {
-        throw new Error(error.message || "Erro ao finalizar atendimento.");
+      if (error) throw new Error(error.message || "Erro ao finalizar atendimento.");
+
+      // Save rating if given
+      if (rating > 0 && barberProfile?.id && barberProfile?.organization_id) {
+        await supabase.from("barber_ratings").insert({
+          organization_id: barberProfile.organization_id,
+          barber_profile_id: barberProfile.id,
+          check_in_id: checkIn.id,
+          rating,
+          comment: ratingComment.trim() || null,
+        } as any);
       }
 
-      toast.success("Atendimento finalizado.");
+      // Audit log
+      if (barberProfile?.organization_id) {
+        await supabase.from("audit_logs").insert({
+          organization_id: barberProfile.organization_id,
+          action: "checkin.finished",
+          entity: "check_ins",
+          entity_id: checkIn.id,
+          metadata: { service_amount: svcAmount, commission_amount: commissionAmount, duration_minutes: durationMinutes },
+        } as any);
+      }
+
+      toast.success(`Atendimento finalizado! Comissão: R$ ${commissionAmount.toFixed(2)}`);
+      setFinishTarget(null);
+      clearDashboardCache();
       await loadData();
     } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Erro ao finalizar atendimento.";
+      const message = error instanceof Error ? error.message : "Erro ao finalizar atendimento.";
       toast.error(message);
     } finally {
+      setSubmittingFinish(false);
       setFinishingId(null);
     }
   }
@@ -455,6 +519,7 @@ export default function CheckInPage() {
   }
 
   return (
+    <>
     <div className="space-y-6 p-6">
       <div className="space-y-1">
         <h1 className="text-lg font-semibold text-foreground">Check-in</h1>
@@ -698,5 +763,88 @@ export default function CheckInPage() {
         )}
       </div>
     </div>
+
+    {/* Finish Attendance Modal */}
+    <Dialog open={!!finishTarget} onOpenChange={(open) => { if (!open) setFinishTarget(null); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Finalizar atendimento</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label htmlFor="serviceAmount">Valor do serviço (R$)</Label>
+            <Input
+              id="serviceAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="Ex: 50.00"
+              value={serviceAmount}
+              onChange={(e) => setServiceAmount(e.target.value)}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              A comissão será calculada automaticamente com base no contrato.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Avaliação do atendimento (opcional)</Label>
+            <div className="flex items-center gap-1">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setRating(star)}
+                  onMouseEnter={() => setHoverRating(star)}
+                  onMouseLeave={() => setHoverRating(0)}
+                  className="p-1 transition-transform hover:scale-110"
+                >
+                  <Star
+                    className={`h-7 w-7 transition-colors ${
+                      star <= (hoverRating || rating)
+                        ? "fill-amber-400 text-amber-400"
+                        : "text-muted-foreground"
+                    }`}
+                  />
+                </button>
+              ))}
+              {rating > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setRating(0)}
+                  className="ml-2 text-xs text-muted-foreground underline"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {rating > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="ratingComment">Comentário (opcional)</Label>
+              <Input
+                id="ratingComment"
+                value={ratingComment}
+                onChange={(e) => setRatingComment(e.target.value)}
+                placeholder="Muito caprichoso, atendeu bem..."
+              />
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setFinishTarget(null)} disabled={submittingFinish}>
+            Cancelar
+          </Button>
+          <Button onClick={handleConfirmFinish} disabled={submittingFinish}>
+            {submittingFinish ? "Finalizando..." : "Finalizar atendimento"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

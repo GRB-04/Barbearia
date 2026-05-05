@@ -10,8 +10,11 @@ import {
   RefreshCw,
   Scissors,
   UserRound,
+  TrendingUp,
+  DollarSign,
 } from "lucide-react";
 import { toast } from "sonner";
+import { startOfMonth, startOfDay, endOfDay } from "date-fns";
 
 type BarberClient = {
   id: string;
@@ -46,6 +49,8 @@ type CachedDashboardData = {
   clients: BarberClient[];
   contracts: Contract[];
   checkIns: CheckIn[];
+  monthEarnings: number;
+  todayEarnings: number;
 };
 
 const DASHBOARD_CACHE_KEY = "barber-dashboard-cache-v1";
@@ -61,6 +66,8 @@ export default function BarberDashboard() {
   const [clients, setClients] = useState<BarberClient[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
+  const [monthEarnings, setMonthEarnings] = useState(0);
+  const [todayEarnings, setTodayEarnings] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const initialLoadDoneRef = useRef(false);
@@ -68,7 +75,9 @@ export default function BarberDashboard() {
   const saveCache = (
     nextClients: BarberClient[],
     nextContracts: Contract[],
-    nextCheckIns: CheckIn[]
+    nextCheckIns: CheckIn[],
+    nextMonthEarnings: number,
+    nextTodayEarnings: number,
   ) => {
     if (!barberProfile?.id) return;
 
@@ -77,6 +86,8 @@ export default function BarberDashboard() {
       clients: nextClients,
       contracts: nextContracts,
       checkIns: nextCheckIns,
+      monthEarnings: nextMonthEarnings,
+      todayEarnings: nextTodayEarnings,
     };
 
     sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(payload));
@@ -99,6 +110,8 @@ export default function BarberDashboard() {
             setClients(cached.clients ?? []);
             setContracts(cached.contracts ?? []);
             setCheckIns(cached.checkIns ?? []);
+            setMonthEarnings(cached.monthEarnings ?? 0);
+            setTodayEarnings(cached.todayEarnings ?? 0);
             setLoading(false);
             return;
           }
@@ -111,7 +124,7 @@ export default function BarberDashboard() {
     setLoading(true);
 
     try {
-      const [clientsResult, contractsResult, checkInsResult] = await Promise.all([
+      const [clientsResult, contractsResult, checkInsResult, earningsResult] = await Promise.all([
         supabase
           .from("barber_clients")
           .select("id, full_name, created_at")
@@ -132,6 +145,14 @@ export default function BarberDashboard() {
           .eq("barber_profile_id", barberProfile.id)
           .order("created_at", { ascending: false })
           .limit(8),
+
+        // Month earnings
+        supabase
+          .from("check_ins")
+          .select("commission_amount, service_amount, finished_at")
+          .eq("barber_profile_id", barberProfile.id)
+          .not("finished_at", "is", null)
+          .gte("finished_at", startOfMonth(new Date()).toISOString()),
       ]);
 
       if (clientsResult.error) {
@@ -153,11 +174,27 @@ export default function BarberDashboard() {
       const nextContracts = (contractsResult.data as Contract[]) ?? [];
       const nextCheckIns = (checkInsResult.data as CheckIn[]) ?? [];
 
+      if (earningsResult.error) {
+        console.error("[BarberDashboard] earnings error:", earningsResult.error);
+        // Non-fatal: continue with 0 earnings
+      }
+
+      const earningsData = (earningsResult.data ?? []) as { commission_amount: number; service_amount: number; finished_at: string }[];
+      const todayStart = startOfDay(new Date()).toISOString();
+      const todayEnd = endOfDay(new Date()).toISOString();
+
+      const nextMonthEarnings = earningsData.reduce((s, c) => s + (Number(c.commission_amount) || 0), 0);
+      const nextTodayEarnings = earningsData
+        .filter((c) => c.finished_at >= todayStart && c.finished_at <= todayEnd)
+        .reduce((s, c) => s + (Number(c.commission_amount) || 0), 0);
+
       setClients(nextClients);
       setContracts(nextContracts);
       setCheckIns(nextCheckIns);
+      setMonthEarnings(nextMonthEarnings);
+      setTodayEarnings(nextTodayEarnings);
 
-      saveCache(nextClients, nextContracts, nextCheckIns);
+      saveCache(nextClients, nextContracts, nextCheckIns, nextMonthEarnings, nextTodayEarnings);
     } catch (error) {
       console.error("[BarberDashboard] unexpected load error:", error);
       toast.error("Erro inesperado ao carregar dashboard.");
@@ -167,7 +204,10 @@ export default function BarberDashboard() {
   };
 
   useEffect(() => {
-    if (!barberProfile?.id || !barber?.id) return;
+    if (!barberProfile?.id || !barber?.id) {
+      setLoading(false);
+      return;
+    }
     if (initialLoadDoneRef.current) return;
 
     initialLoadDoneRef.current = true;
@@ -355,6 +395,34 @@ export default function BarberDashboard() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="flex items-center gap-4 p-5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100">
+              <DollarSign className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Ganhos hoje</p>
+              <p className="text-2xl font-bold text-emerald-600">
+                {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(todayEarnings)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-2xl shadow-sm">
+          <CardContent className="flex items-center gap-4 p-5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100">
+              <TrendingUp className="h-5 w-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Ganhos do mês</p>
+              <p className="text-2xl font-bold text-blue-600">
+                {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(monthEarnings)}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card className="rounded-2xl shadow-sm">
           <CardContent className="flex items-center gap-4 p-5">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">

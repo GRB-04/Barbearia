@@ -8,11 +8,13 @@ import {
   ClipboardCheck,
   Search,
   CalendarDays,
+  TrendingUp,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
+import NotificationBell from "@/components/NotificationBell";
 
 function navLinkClass(isActive: boolean) {
   return [
@@ -44,19 +46,22 @@ export default function BarberLayout() {
       <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
         <aside className="border-b border-border bg-card lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col p-4">
-            <div className="mb-6 flex items-center gap-3 px-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary">
-                <Scissors className="h-5 w-5 text-foreground" />
-              </div>
+            <div className="mb-6 flex items-center justify-between gap-3 px-2">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary">
+                  <Scissors className="h-5 w-5 text-foreground" />
+                </div>
 
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  Portal do barbeiro
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Contratos, clientes e atendimento
-                </p>
+                <div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {isReceptionist ? "Recepção" : "Portal do barbeiro"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {isReceptionist ? "Check-in e clientes" : "Contratos, clientes e atendimento"}
+                  </p>
+                </div>
               </div>
+              <NotificationBell />
             </div>
 
             <nav className="flex flex-col gap-1">
@@ -113,6 +118,16 @@ export default function BarberLayout() {
                 <ClipboardCheck className="h-4 w-4" />
                 Check-in
               </NavLink>
+
+              {!isReceptionist && (
+                <NavLink
+                  to="/barber/earnings"
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  <TrendingUp className="h-4 w-4" />
+                  Meus ganhos
+                </NavLink>
+              )}
             </nav>
 
             <div className="mt-auto pt-6">
