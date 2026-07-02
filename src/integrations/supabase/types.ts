@@ -14,38 +14,98 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          action: string
+          after: Json | null
+          before: Json | null
+          created_at: string
+          entity: string
+          entity_id: string | null
+          id: string
+          metadata: Json | null
+          organization_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity: string
+          entity_id?: string | null
+          id?: string
+          metadata?: Json | null
+          organization_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          after?: Json | null
+          before?: Json | null
+          created_at?: string
+          entity?: string
+          entity_id?: string | null
+          id?: string
+          metadata?: Json | null
+          organization_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "vw_public_chair_explore"
+            referencedColumns: ["organization_id"]
+          },
+        ]
+      }
       barber_clients: {
         Row: {
+          anonymized_at: string | null
           barber_profile_id: string
           created_at: string
           email: string | null
           first_appointment_date: string | null
           full_name: string
           id: string
+          is_anonymized: boolean
           notes: string | null
           organization_id: string
           phone: string | null
           updated_at: string
         }
         Insert: {
+          anonymized_at?: string | null
           barber_profile_id: string
           created_at?: string
           email?: string | null
           first_appointment_date?: string | null
           full_name: string
           id?: string
+          is_anonymized?: boolean
           notes?: string | null
           organization_id: string
           phone?: string | null
           updated_at?: string
         }
         Update: {
+          anonymized_at?: string | null
           barber_profile_id?: string
           created_at?: string
           email?: string | null
           first_appointment_date?: string | null
           full_name?: string
           id?: string
+          is_anonymized?: boolean
           notes?: string | null
           organization_id?: string
           phone?: string | null
@@ -119,6 +179,65 @@ export type Database = {
           },
           {
             foreignKeyName: "barber_profiles_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "vw_public_chair_explore"
+            referencedColumns: ["organization_id"]
+          },
+        ]
+      }
+      barber_ratings: {
+        Row: {
+          barber_profile_id: string
+          check_in_id: string | null
+          comment: string | null
+          created_at: string
+          id: string
+          organization_id: string
+          rating: number
+        }
+        Insert: {
+          barber_profile_id: string
+          check_in_id?: string | null
+          comment?: string | null
+          created_at?: string
+          id?: string
+          organization_id: string
+          rating: number
+        }
+        Update: {
+          barber_profile_id?: string
+          check_in_id?: string | null
+          comment?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string
+          rating?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "barber_ratings_barber_profile_id_fkey"
+            columns: ["barber_profile_id"]
+            isOneToOne: false
+            referencedRelation: "barber_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barber_ratings_check_in_id_fkey"
+            columns: ["check_in_id"]
+            isOneToOne: false
+            referencedRelation: "check_ins"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barber_ratings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "barber_ratings_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "vw_public_chair_explore"
@@ -355,11 +474,42 @@ export type Database = {
           },
         ]
       }
+      consent_records: {
+        Row: {
+          consent_type: string
+          consented_at: string
+          id: string
+          session_id: string | null
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          consent_type?: string
+          consented_at?: string
+          id?: string
+          session_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          consent_type?: string
+          consented_at?: string
+          id?: string
+          session_id?: string | null
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       contracts: {
         Row: {
           barber_profile_id: string | null
           billing_cycle: Database["public"]["Enums"]["billing_cycle"]
           booking_id: string | null
+          cancellation_fee: number | null
+          cancellation_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
           chair_id: string
           created_at: string
           end_at: string
@@ -380,6 +530,10 @@ export type Database = {
           barber_profile_id?: string | null
           billing_cycle?: Database["public"]["Enums"]["billing_cycle"]
           booking_id?: string | null
+          cancellation_fee?: number | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           chair_id: string
           created_at?: string
           end_at: string
@@ -400,6 +554,10 @@ export type Database = {
           barber_profile_id?: string | null
           billing_cycle?: Database["public"]["Enums"]["billing_cycle"]
           booking_id?: string | null
+          cancellation_fee?: number | null
+          cancellation_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
           chair_id?: string
           created_at?: string
           end_at?: string
@@ -527,6 +685,54 @@ export type Database = {
           },
           {
             foreignKeyName: "locations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "vw_public_chair_explore"
+            referencedColumns: ["organization_id"]
+          },
+        ]
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          organization_id: string | null
+          read_at: string | null
+          title: string
+          type: string
+          user_id: string | null
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          read_at?: string | null
+          title: string
+          type?: string
+          user_id?: string | null
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string | null
+          read_at?: string | null
+          title?: string
+          type?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_organization_id_fkey"
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "vw_public_chair_explore"
@@ -892,7 +1098,15 @@ export type Database = {
         }
         Returns: undefined
       }
+      managed_location_barber_profile_ids: { Args: never; Returns: string[] }
+      managed_location_booking_ids: { Args: never; Returns: string[] }
+      managed_location_chair_ids: { Args: never; Returns: string[] }
       managed_location_id: { Args: never; Returns: string }
+      managed_organization_barber_profile_ids: {
+        Args: never
+        Returns: string[]
+      }
+      managed_organization_id: { Args: never; Returns: string }
       manager_has_permission: {
         Args: { p_permission: string }
         Returns: boolean
