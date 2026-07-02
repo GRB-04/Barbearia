@@ -101,3 +101,41 @@ export async function fetchLocationContracts(locationId: string) {
   if (error) throw error;
   return (data ?? []) as any[];
 }
+
+// Barbeiros distintos com reservas no ponto
+export async function fetchLocationBarbers(locationId: string) {
+  const { data, error } = await supabase
+    .from("chair_bookings")
+    .select(
+      `
+      barber_profile_id,
+      barber_profiles ( id, full_name, email, phone ),
+      chairs!inner ( location_id )
+    `
+    )
+    .eq("chairs.location_id", locationId);
+
+  if (error) throw error;
+
+  const seen = new Map<string, any>();
+  ((data ?? []) as any[]).forEach((row) => {
+    const p = row.barber_profiles;
+    if (p?.id && !seen.has(p.id)) seen.set(p.id, p);
+  });
+
+  return Array.from(seen.values()) as {
+    id: string;
+    full_name: string;
+    email: string | null;
+    phone: string | null;
+  }[];
+}
+
+export async function updateChairStatus(chairId: string, status: string) {
+  const { error } = await supabase
+    .from("chairs")
+    .update({ status })
+    .eq("id", chairId);
+
+  if (error) throw error;
+}
