@@ -77,7 +77,7 @@ export default function FinancialReportPage() {
     try {
       const { data: contractsData, error: contractsError } = await supabase
         .from("contracts")
-        .select("id, price, billing_cycle, status, start_at, end_at, cancellation_fee, barber_id, chair_id")
+        .select("id, price, billing_cycle, status, start_at, end_at, cancellation_fee, barber_profile_id, chair_id")
         .eq("organization_id", organization.id)
         .gte("start_at", range.from)
         .lte("start_at", range.to)
@@ -88,19 +88,19 @@ export default function FinancialReportPage() {
       const raw = contractsData ?? [];
 
       // Fetch related data
-      const barberIds = [...new Set(raw.map((c) => c.barber_id).filter(Boolean))];
+      const barberIds = [...new Set(raw.map((c) => c.barber_profile_id).filter(Boolean))];
       const chairIds = [...new Set(raw.map((c) => c.chair_id).filter(Boolean))];
 
       const [barbersRes, chairsRes] = await Promise.all([
         barberIds.length > 0
-          ? supabase.from("organization_barbers").select("id, full_name").in("id", barberIds)
+          ? supabase.from("organization_barbers").select("barber_profile_id, full_name").in("barber_profile_id", barberIds)
           : { data: [], error: null },
         chairIds.length > 0
           ? supabase.from("chairs").select("id, identifier, location_id").in("id", chairIds)
           : { data: [], error: null },
       ]);
 
-      const barberMap = new Map((barbersRes.data ?? []).map((b: any) => [b.id, b.full_name]));
+      const barberMap = new Map((barbersRes.data ?? []).map((b: any) => [b.barber_profile_id, b.full_name]));
       const chairMap = new Map((chairsRes.data ?? []).map((c: any) => [c.id, c]));
 
       const locationIds = [...new Set((chairsRes.data ?? []).map((c: any) => c.location_id).filter(Boolean))];
@@ -114,7 +114,7 @@ export default function FinancialReportPage() {
         const chair = chairMap.get(c.chair_id);
         return {
           id: c.id,
-          barber_name: barberMap.get(c.barber_id) ?? "—",
+          barber_name: barberMap.get(c.barber_profile_id) ?? "—",
           chair_identifier: chair?.identifier ?? "—",
           location_name: chair ? (locationMap.get(chair.location_id) ?? "—") : "—",
           start_at: c.start_at,

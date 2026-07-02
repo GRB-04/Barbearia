@@ -134,7 +134,7 @@ export default function BarberDashboard() {
         supabase
           .from("contracts")
           .select("id, status, created_at")
-          .eq("barber_id", barber.id)
+          .eq("barber_profile_id", barberProfile.id)
           .order("created_at", { ascending: false }),
 
         supabase

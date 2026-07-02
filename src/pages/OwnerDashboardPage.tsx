@@ -83,7 +83,7 @@ export default function OwnerDashboardPage() {
       const [contractsRes, checkInsRes, barbersRes] = await Promise.all([
         supabase
           .from("contracts")
-          .select("id, status, price, barber_id")
+          .select("id, status, price, barber_profile_id")
           .eq("organization_id", organization.id)
           .in("status", ["active", "pending"]),
 

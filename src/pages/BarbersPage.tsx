@@ -194,27 +194,29 @@ export default function BarbersPage() {
     }
   };
 
-  const handleDeleteBarber = async (barberId: string) => {
+  const handleDeleteBarber = async (barber: BarberRow) => {
     const confirmed = window.confirm(
       "Tem certeza que deseja remover este barbeiro da organização?"
     );
 
     if (!confirmed) return;
 
-    const { data: relatedContracts } = await supabase
-      .from("contracts")
-      .select("id")
-      .eq("barber_id", barberId)
-      .limit(1);
+    if (barber.barber_profile_id) {
+      const { data: relatedContracts } = await supabase
+        .from("contracts")
+        .select("id")
+        .eq("barber_profile_id", barber.barber_profile_id)
+        .limit(1);
 
-    if (relatedContracts && relatedContracts.length > 0) {
-      toast.error(
-        "Não é possível remover este barbeiro pois ele possui contratos vinculados. Exclua os contratos primeiro na aba 'Contratos'."
-      );
-      return;
+      if (relatedContracts && relatedContracts.length > 0) {
+        toast.error(
+          "Não é possível remover este barbeiro pois ele possui contratos vinculados. Exclua os contratos primeiro na aba 'Contratos'."
+        );
+        return;
+      }
     }
 
-    const { error } = await supabase.from("organization_barbers").delete().eq("id", barberId);
+    const { error } = await supabase.from("organization_barbers").delete().eq("id", barber.id);
 
     if (error) {
       console.error("[BarbersPage] delete barber error:", error);
@@ -523,7 +525,7 @@ export default function BarbersPage() {
                     <Button
                       variant="destructive"
                       className="gap-2"
-                      onClick={() => void handleDeleteBarber(barber.id)}
+                      onClick={() => void handleDeleteBarber(barber)}
                     >
                       <Trash2 className="h-4 w-4" />
                       Remover
