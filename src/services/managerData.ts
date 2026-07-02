@@ -179,18 +179,20 @@ export async function fetchLocationPayments(
 
   if (error) throw error;
 
-  return ((data ?? []) as any[]).map((row) => ({
-    id: row.id,
-    amount: row.amount,
-    status: row.status,
-    due_date: row.due_date,
-    paid_at: row.paid_at,
-    payment_method: row.payment_method,
-    reference: row.reference,
-    barber_full_name: row.chair_bookings?.barber_profiles?.full_name ?? null,
-    chair_identifier: row.chair_bookings?.chairs?.identifier ?? null,
-    booking_start_at: row.chair_bookings?.start_at ?? null,
-  }));
+  return ((data ?? []) as any[])
+    .filter((row: any) => row.chair_bookings?.chairs?.location_id === locationId)
+    .map((row) => ({
+      id: row.id,
+      amount: row.amount,
+      status: row.status,
+      due_date: row.due_date,
+      paid_at: row.paid_at,
+      payment_method: row.payment_method,
+      reference: row.reference,
+      barber_full_name: row.chair_bookings?.barber_profiles?.full_name ?? null,
+      chair_identifier: row.chair_bookings?.chairs?.identifier ?? null,
+      booking_start_at: row.chair_bookings?.start_at ?? null,
+    }));
 }
 
 export async function registerManualPayment(paymentId: string, method: string) {
