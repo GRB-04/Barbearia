@@ -102,33 +102,69 @@ export async function fetchLocationContracts(locationId: string) {
   return (data ?? []) as any[];
 }
 
-// Barbeiros distintos com reservas no ponto
-export async function fetchLocationBarbers(locationId: string) {
-  const { data, error } = await supabase
+export type ManagerBarberRow = {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  is_active: boolean; // tem reserva ou contrato neste ponto físico
+};
+
+// Todos os barbeiros da organização, com flag "ativo" (reserva/contrato no ponto do gerente).
+export async function fetchOrgBarbersForManager(
+  organizationId: string,
+  locationId: string
+): Promise<ManagerBarberRow[]> {
+  // 1) Roster de barbeiros da organização
+  const { data: roster, error: rosterError } = await supabase
+    .from("organization_barbers")
+    .select(`barber_profile_id, barber_profiles ( id, full_name, email, phone )`)
+    .eq("organization_id", organizationId)
+    .eq("role", "barber");
+
+  if (rosterError) throw rosterError;
+
+  // 2) IDs de barbeiros ativos no ponto (reservas + contratos)
+  const activeIds = new Set<string>();
+
+  const { data: bookings, error: bookingsError } = await supabase
     .from("chair_bookings")
-    .select(
-      `
-      barber_profile_id,
-      barber_profiles ( id, full_name, email, phone ),
-      chairs!inner ( location_id )
-    `
-    )
+    .select(`barber_profile_id, chairs!inner ( location_id )`)
     .eq("chairs.location_id", locationId);
-
-  if (error) throw error;
-
-  const seen = new Map<string, any>();
-  ((data ?? []) as any[]).forEach((row) => {
-    const p = row.barber_profiles;
-    if (p?.id && !seen.has(p.id)) seen.set(p.id, p);
+  if (bookingsError) throw bookingsError;
+  ((bookings ?? []) as any[]).forEach((r) => {
+    if (r.barber_profile_id && r.chairs?.location_id === locationId) {
+      activeIds.add(r.barber_profile_id);
+    }
   });
 
-  return Array.from(seen.values()) as {
-    id: string;
-    full_name: string;
-    email: string | null;
-    phone: string | null;
-  }[];
+  const { data: contracts, error: contractsError } = await supabase
+    .from("contracts")
+    .select(`barber_profile_id, chairs!inner ( location_id )`)
+    .eq("chairs.location_id", locationId);
+  if (contractsError) throw contractsError;
+  ((contracts ?? []) as any[]).forEach((r) => {
+    if (r.barber_profile_id && r.chairs?.location_id === locationId) {
+      activeIds.add(r.barber_profile_id);
+    }
+  });
+
+  // 3) Deduplica e monta a lista
+  const seen = new Map<string, ManagerBarberRow>();
+  ((roster ?? []) as any[]).forEach((row) => {
+    const p = row.barber_profiles;
+    if (p?.id && !seen.has(p.id)) {
+      seen.set(p.id, {
+        id: p.id,
+        full_name: p.full_name,
+        email: p.email ?? null,
+        phone: p.phone ?? null,
+        is_active: activeIds.has(p.id),
+      });
+    }
+  });
+
+  return Array.from(seen.values());
 }
 
 export async function updateChairStatus(chairId: string, status: string) {
