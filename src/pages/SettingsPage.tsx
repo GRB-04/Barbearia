@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Switch } from "@/components/ui/switch";
 import { Settings, Building2, Phone, Mail, Save, CalendarCheck } from "lucide-react";
 import { toast } from "sonner";
+import ManagerUsersSection from "@/components/ManagerUsersSection";
 
 export default function SettingsPage() {
   const { organization, loading: orgLoading } = useOrganization();
@@ -224,6 +225,9 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Manager Users */}
+      <ManagerUsersSection />
     </div>
   );
 }
