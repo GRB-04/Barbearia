@@ -60,9 +60,10 @@ export default function BarbersPage() {
     const { data, error } = await supabase
       .from("organization_barbers")
       .select(
-        "id, barber_profile_id, organization_id, full_name, email, phone, user_id"
+        "id, barber_profile_id, organization_id, full_name, email, phone, user_id, role"
       )
       .eq("organization_id", organization.id)
+      .neq("role", "manager")
       .order("full_name", { ascending: true });
 
     if (error) {
@@ -515,7 +516,6 @@ export default function BarbersPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="barber">Barbeiro</SelectItem>
-                          <SelectItem value="manager">Gerente</SelectItem>
                           <SelectItem value="receptionist">Recepcionista</SelectItem>
                         </SelectContent>
                       </Select>
