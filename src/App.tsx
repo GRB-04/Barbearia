@@ -40,6 +40,15 @@ import EarningsPage from "./pages/barber/EarningsPage";
 
 import NotFound from "./pages/NotFound";
 
+import ManagerLayout from "./components/ManagerLayout";
+import ManagerDashboard from "./pages/manager/ManagerDashboard";
+import ManagerBookingsPage from "./pages/manager/ManagerBookingsPage";
+import ManagerBarbersPage from "./pages/manager/ManagerBarbersPage";
+import ManagerContractsPage from "./pages/manager/ManagerContractsPage";
+import ManagerChairsPage from "./pages/manager/ManagerChairsPage";
+import ManagerPaymentsPage from "./pages/manager/ManagerPaymentsPage";
+import ManagerFinancialsPage from "./pages/manager/ManagerFinancialsPage";
+
 const queryClient = new QueryClient();
 
 function LoadingScreen({
@@ -89,7 +98,7 @@ function BarberAccessMissingScreen() {
 function OwnerRoutes() {
   const { user, loading: authLoading } = useAuth();
   const { organization, loading: orgLoading } = useOrganization();
-  const { barberProfile, barber, loading: barberLoading } = useBarberProfile();
+  const { barberProfile, barber, isLocationManager, loading: barberLoading } = useBarberProfile();
 
   if (authLoading || barberLoading) {
     return (
@@ -106,6 +115,10 @@ function OwnerRoutes() {
 
   if (isOperationalBarber && !isOwner) {
     return <Navigate to="/barber/dashboard" replace />;
+  }
+
+  if (isLocationManager && !isOwner) {
+    return <Navigate to="/manager/dashboard" replace />;
   }
 
   if (orgLoading) {
@@ -141,7 +154,7 @@ function OwnerRoutes() {
 function BarberRoutes() {
   const { user, loading: authLoading } = useAuth();
   const { organization } = useOrganization();
-  const { barberProfile, barber, loading: barberLoading } = useBarberProfile();
+  const { barberProfile, barber, isLocationManager, loading: barberLoading } = useBarberProfile();
 
   if (authLoading || barberLoading) {
     return (
@@ -164,6 +177,10 @@ function BarberRoutes() {
 
   if (isOwner && !hasBarberProfile && !hasOperationalBarber) {
     return <Navigate to="/locations" replace />;
+  }
+
+  if (isLocationManager && !isOwner) {
+    return <Navigate to="/manager/dashboard" replace />;
   }
 
   if (!hasBarberProfile) {
@@ -208,6 +225,63 @@ function BarberRoutes() {
   );
 }
 
+function ManagerRoutes() {
+  const { user, loading: authLoading } = useAuth();
+  const {
+    isLocationManager,
+    managerPermissions,
+    loading: barberLoading,
+  } = useBarberProfile();
+
+  if (authLoading || barberLoading) {
+    return (
+      <LoadingScreen description="Estamos carregando o acesso do gerente." />
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/barber/auth" replace />;
+  }
+
+  if (!isLocationManager) {
+    return <Navigate to="/" replace />;
+  }
+
+  return (
+    <Routes>
+      <Route path="/" element={<ManagerLayout />}>
+        <Route index element={<Navigate to="/manager/dashboard" replace />} />
+        <Route path="dashboard" element={<ManagerDashboard />} />
+        <Route path="bookings" element={<ManagerBookingsPage />} />
+        <Route path="barbers" element={<ManagerBarbersPage />} />
+        <Route path="contracts" element={<ManagerContractsPage />} />
+        <Route path="chairs" element={<ManagerChairsPage />} />
+        <Route
+          path="payments"
+          element={
+            managerPermissions.can_manage_payments ? (
+              <ManagerPaymentsPage />
+            ) : (
+              <Navigate to="/manager/dashboard" replace />
+            )
+          }
+        />
+        <Route
+          path="financials"
+          element={
+            managerPermissions.can_view_financials ? (
+              <ManagerFinancialsPage />
+            ) : (
+              <Navigate to="/manager/dashboard" replace />
+            )
+          }
+        />
+        <Route path="*" element={<Navigate to="/manager/dashboard" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -225,6 +299,7 @@ const App = () => {
               <BarberProfileProvider>
                 <Routes>
                   <Route path="/barber/*" element={<BarberRoutes />} />
+                  <Route path="/manager/*" element={<ManagerRoutes />} />
                   <Route path="/*" element={<OwnerRoutes />} />
                 </Routes>
                 <ConsentBanner />
