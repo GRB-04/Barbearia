@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, CalendarDays, Clock3, User, Check, X, AlertTriangle } from "lucide-react";
@@ -35,7 +35,7 @@ export default function ManagerBookingsPage() {
   const [actioning, setActioning] = useState<string | null>(null);
   const [filter, setFilter] = useState<"pending" | "all">("pending");
 
-  const loadBookings = async () => {
+  const loadBookings = useCallback(async () => {
     if (!managerLocationId) return;
     setLoading(true);
     try {
@@ -47,11 +47,11 @@ export default function ManagerBookingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [managerLocationId, filter]);
 
   useEffect(() => {
     void loadBookings();
-  }, [managerLocationId, filter]);
+  }, [loadBookings]);
 
   const handleAction = async (bookingId: string, newStatus: "confirmed" | "rejected") => {
     setActioning(bookingId);

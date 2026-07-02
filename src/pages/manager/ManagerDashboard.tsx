@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
 import { Button } from "@/components/ui/button";
@@ -45,7 +46,7 @@ export default function ManagerDashboard() {
           activeContractCount: contracts.filter((c: any) => c.status === "active").length,
         });
       } catch {
-        // silently ignore; cards will remain null
+        toast.error("Não foi possível carregar os dados do ponto.");
       } finally {
         setLoading(false);
       }
