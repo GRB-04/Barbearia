@@ -11,6 +11,10 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { Tables } from "@/integrations/supabase/types";
+import {
+  parseManagerPermissions,
+  type ManagerPermissions,
+} from "@/lib/managerPermissions";
 
 type BarberProfile = Tables<"barber_profiles">;
 type Barber = Tables<"barbers">;
@@ -22,6 +26,9 @@ type BarberProfileContextType = {
   isAdmin: boolean;
   isManager: boolean;
   isReceptionist: boolean;
+  isLocationManager: boolean;
+  managerLocationId: string | null;
+  managerPermissions: ManagerPermissions;
   refreshBarberProfile: () => Promise<void>;
   createBarberProfile: (
     fullName: string,
@@ -41,7 +48,7 @@ const BarberProfileContext = createContext<BarberProfileContextType | undefined>
   undefined
 );
 
-const BARBER_PROFILE_CACHE_KEY = "barber-profile-cache-v5";
+const BARBER_PROFILE_CACHE_KEY = "barber-profile-cache-v6";
 
 type CachedBarberProfilePayload = {
   userId: string;
@@ -277,6 +284,19 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
     return r === "receptionist";
   }, [barberProfile]);
 
+  const isLocationManager = useMemo(() => {
+    return (barber as any)?.role === "manager";
+  }, [barber]);
+
+  const managerLocationId = useMemo(() => {
+    if (!isLocationManager) return null;
+    return ((barber as any)?.location_id as string | null) ?? null;
+  }, [barber, isLocationManager]);
+
+  const managerPermissions = useMemo(() => {
+    return parseManagerPermissions((barber as any)?.permissions);
+  }, [barber]);
+
   const value = useMemo(
     () => ({
       barberProfile,
@@ -285,6 +305,9 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
       isAdmin,
       isManager,
       isReceptionist,
+      isLocationManager,
+      managerLocationId,
+      managerPermissions,
       refreshBarberProfile,
       createBarberProfile,
       claimBarberInvitation,
@@ -296,6 +319,9 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
       isAdmin,
       isManager,
       isReceptionist,
+      isLocationManager,
+      managerLocationId,
+      managerPermissions,
       refreshBarberProfile,
       createBarberProfile,
       claimBarberInvitation,
