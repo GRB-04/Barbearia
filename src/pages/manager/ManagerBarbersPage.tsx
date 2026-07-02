@@ -53,10 +53,14 @@ export default function ManagerBarbersPage() {
     ? `${window.location.origin}/barber/auth?org=${organizationId}`
     : null;
 
-  const handleCopyLink = () => {
+  const handleCopyLink = async () => {
     if (!inviteLink) return;
-    navigator.clipboard.writeText(inviteLink);
-    toast.success("Link copiado.");
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      toast.success("Link copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o link.");
+    }
   };
 
   return (
@@ -70,12 +74,14 @@ export default function ManagerBarbersPage() {
         </div>
 
         <div className="flex gap-2">
-          {managerPermissions?.can_invite_barbers && inviteLink && (
+          {managerPermissions?.can_invite_barbers && (
             <Button
               variant="outline"
               size="sm"
               className="rounded-xl gap-2"
               onClick={handleCopyLink}
+              disabled={!inviteLink}
+              title={!inviteLink ? "Organização não identificada" : undefined}
             >
               <Copy className="h-3.5 w-3.5" />
               Copiar link de convite
