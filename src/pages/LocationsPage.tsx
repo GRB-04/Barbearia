@@ -198,7 +198,7 @@ export default function LocationsPage() {
                 <Input
                   type="number"
                   min={1}
-                  max={5}
+                  max={50}
                   value={capacity}
                   onChange={(e) => setCapacity(Number(e.target.value))}
                   placeholder="2"
