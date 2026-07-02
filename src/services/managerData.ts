@@ -139,3 +139,70 @@ export async function updateChairStatus(chairId: string, status: string) {
 
   if (error) throw error;
 }
+
+export type ManagerPaymentRow = {
+  id: string;
+  amount: number;
+  status: string;
+  due_date: string | null;
+  paid_at: string | null;
+  payment_method: string | null;
+  reference: string | null;
+  barber_full_name: string | null;
+  chair_identifier: string | null;
+  booking_start_at: string | null;
+};
+
+export async function fetchLocationPayments(
+  locationId: string
+): Promise<ManagerPaymentRow[]> {
+  const { data, error } = await supabase
+    .from("payments")
+    .select(
+      `
+      id,
+      amount,
+      status,
+      due_date,
+      paid_at,
+      payment_method,
+      reference,
+      chair_bookings!inner (
+        start_at,
+        chairs!inner ( identifier, location_id ),
+        barber_profiles ( full_name )
+      )
+    `
+    )
+    .eq("chair_bookings.chairs.location_id", locationId)
+    .order("due_date", { ascending: false });
+
+  if (error) throw error;
+
+  return ((data ?? []) as any[]).map((row) => ({
+    id: row.id,
+    amount: row.amount,
+    status: row.status,
+    due_date: row.due_date,
+    paid_at: row.paid_at,
+    payment_method: row.payment_method,
+    reference: row.reference,
+    barber_full_name: row.chair_bookings?.barber_profiles?.full_name ?? null,
+    chair_identifier: row.chair_bookings?.chairs?.identifier ?? null,
+    booking_start_at: row.chair_bookings?.start_at ?? null,
+  }));
+}
+
+export async function registerManualPayment(paymentId: string, method: string) {
+  const { error } = await supabase
+    .from("payments")
+    .update({
+      status: "paid",
+      paid_at: new Date().toISOString(),
+      payment_method: method,
+      reference: `MANUAL_${Date.now()}`,
+    })
+    .eq("id", paymentId);
+
+  if (error) throw error;
+}
