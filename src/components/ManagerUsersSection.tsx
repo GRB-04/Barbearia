@@ -174,6 +174,8 @@ export default function ManagerUsersSection() {
   };
 
   const handleRemoveManager = async (manager: ManagerRow) => {
+    if (!window.confirm("Remover este gerente? Esta ação não pode ser desfeita.")) return;
+
     const { error } = await supabase
       .from("organization_barbers")
       .delete()
@@ -191,8 +193,10 @@ export default function ManagerUsersSection() {
   const copyInviteLink = () => {
     if (!organization?.id) return;
     const link = `${window.location.origin}/barber/auth?org=${organization.id}`;
-    void navigator.clipboard.writeText(link);
-    toast.success("Link de convite copiado.");
+    navigator.clipboard
+      .writeText(link)
+      .then(() => toast.success("Link de convite copiado."))
+      .catch(() => toast.error("Não foi possível copiar o link."));
   };
 
   const locationName = (id: string | null) =>
