@@ -96,7 +96,7 @@ export default function OwnerDashboardPage() {
           .lte("finished_at", range.to),
 
         supabase
-          .from("barbers")
+          .from("organization_barbers")
           .select("id, full_name, barber_profile_id")
           .eq("organization_id", organization.id),
       ]);

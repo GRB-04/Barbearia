@@ -149,7 +149,7 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
         const nextProfile = profileData as BarberProfile;
 
         const { data: barberData, error: barberError } = await supabase
-          .from("barbers")
+          .from("organization_barbers")
           .select("*")
           .eq("barber_profile_id", nextProfile.id)
           .order("created_at", { ascending: true })

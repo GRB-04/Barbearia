@@ -67,10 +67,47 @@ export async function listExploreChairs(): Promise<ExploreChairItem[]> {
   return (data ?? []) as ExploreChairItem[];
 }
 
+async function resolveBookingStatus(
+  organizationId: string,
+  chairId: string
+): Promise<"confirmed" | "pending"> {
+  // Fetch org default + location override in parallel
+  const [orgRes, chairRes] = await Promise.all([
+    supabase
+      .from("organizations")
+      .select("auto_confirm_bookings")
+      .eq("id", organizationId)
+      .single(),
+    supabase
+      .from("chairs")
+      .select("location_id")
+      .eq("id", chairId)
+      .single(),
+  ]);
+
+  const orgAutoConfirm = (orgRes.data as any)?.auto_confirm_bookings ?? true;
+
+  if (chairRes.data?.location_id) {
+    const locRes = await supabase
+      .from("locations")
+      .select("auto_confirm_bookings")
+      .eq("id", chairRes.data.location_id)
+      .single();
+
+    const locationOverride = (locRes.data as any)?.auto_confirm_bookings;
+    // COALESCE(location.setting, org.setting)
+    const effective = locationOverride ?? orgAutoConfirm;
+    return effective ? "confirmed" : "pending";
+  }
+
+  return orgAutoConfirm ? "confirmed" : "pending";
+}
+
 export async function createChairBooking(
   input: CreateChairBookingInput
 ): Promise<ChairBookingTimeRow> {
   const barberProfileId = await getCurrentBarberProfileId();
+  const status = await resolveBookingStatus(input.organizationId, input.chairId);
 
   const { data, error } = await supabase
     .from("chair_bookings")
@@ -80,7 +117,7 @@ export async function createChairBooking(
       organization_id: input.organizationId,
       start_at: input.startAt,
       end_at: input.endAt,
-      status: "pending",
+      status,
       notes: input.notes ?? null,
     })
     .select("id, start_at, end_at, status")
@@ -270,3 +307,19 @@ export async function getMyChairBookings(): Promise<BarberBookingItem[]> {
   }));
 }
 
+export async function cancelMyBarberBooking(bookingId: string): Promise<void> {
+  const barberProfileId = await getCurrentBarberProfileId();
+
+  const { error } = await supabase
+    .from("chair_bookings")
+    .update({ status: "cancelled" })
+    .eq("id", bookingId)
+    .eq("barber_profile_id", barberProfileId)
+    .in("status", ["pending", "confirmed"]);
+
+  if (error) {
+    throw new Error(error.message || "Erro ao cancelar reserva.");
+  }
+}
+
+export { getMyChairBookings as listMyBarberBookings };

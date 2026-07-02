@@ -93,7 +93,7 @@ export default function FinancialReportPage() {
 
       const [barbersRes, chairsRes] = await Promise.all([
         barberIds.length > 0
-          ? supabase.from("barbers").select("id, full_name").in("id", barberIds)
+          ? supabase.from("organization_barbers").select("id, full_name").in("id", barberIds)
           : { data: [], error: null },
         chairIds.length > 0
           ? supabase.from("chairs").select("id, identifier, location_id").in("id", chairIds)

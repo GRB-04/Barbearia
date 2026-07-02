@@ -6,6 +6,7 @@ import {
   listExploreChairs,
   type ExploreChairItem,
 } from "@/services/chairBookings";
+import { MapPin, RefreshCw, SlidersHorizontal } from "lucide-react";
 
 type GroupedLocation = {
   organization_id: string;
@@ -28,15 +29,15 @@ function getAddressLine(item: {
 
 function getChairStatusLabel(status: string) {
   switch (status) {
-    case "available":
-      return "Disponivel";
-    case "occupied":
-      return "Ocupada";
-    case "maintenance":
-      return "Manutencao";
-    default:
-      return status || "Indisponivel";
+    case "available": return "Disponível";
+    case "occupied": return "Ocupada";
+    case "maintenance": return "Manutenção";
+    default: return status || "Indisponível";
   }
+}
+
+function normalize(str: string) {
+  return str.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 export default function ExplorePage() {
@@ -45,60 +46,64 @@ export default function ExplorePage() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [search, setSearch] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
+  const [availableOnly, setAvailableOnly] = useState(false);
   const [selectedChairId, setSelectedChairId] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState("");
 
   async function loadExplore() {
     try {
       setLoading(true);
       setErrorMessage("");
-
       const data = await listExploreChairs();
       setChairs(data);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Erro ao carregar cadeiras.";
-      setErrorMessage(message);
+      setErrorMessage(error instanceof Error ? error.message : "Erro ao carregar cadeiras.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    void loadExplore();
-  }, []);
+  useEffect(() => { void loadExplore(); }, []);
+
+  const cities = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of chairs) {
+      if (c.city) set.add(c.city);
+    }
+    return Array.from(set).sort();
+  }, [chairs]);
 
   const filteredChairs = useMemo(() => {
-    const query = search.trim().toLowerCase();
+    let result = chairs;
 
-    if (!query) return chairs;
+    if (cityFilter) {
+      result = result.filter((c) => c.city === cityFilter);
+    }
 
-    return chairs.filter((item) => {
-      const normalize = (str: string) => 
-        str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-      
-      const searchTerms = normalize(query).split(" ");
-      const haystack = normalize([
-        item.organization_name,
-        item.location_name,
-        item.city,
-        item.state,
-        item.address,
-        item.chair_identifier,
-      ].filter(Boolean).join(" "));
+    if (availableOnly) {
+      result = result.filter((c) => c.chair_status === "available");
+    }
 
-      return searchTerms.every(term => haystack.includes(term));
-    });
-  }, [chairs, search]);
+    const query = normalize(search.trim());
+    if (query) {
+      const terms = query.split(/\s+/);
+      result = result.filter((item) => {
+        const haystack = normalize(
+          [item.organization_name, item.location_name, item.city, item.state, item.address, item.chair_identifier]
+            .filter(Boolean).join(" ")
+        );
+        return terms.every((t) => haystack.includes(t));
+      });
+    }
+
+    return result;
+  }, [chairs, search, cityFilter, availableOnly]);
 
   const groupedLocations = useMemo<GroupedLocation[]>(() => {
     const map = new Map<string, GroupedLocation>();
-
     for (const item of filteredChairs) {
-      const key = item.location_id;
-
-      if (!map.has(key)) {
-        map.set(key, {
+      if (!map.has(item.location_id)) {
+        map.set(item.location_id, {
           organization_id: item.organization_id,
           organization_name: item.organization_name,
           location_id: item.location_id,
@@ -109,123 +114,147 @@ export default function ExplorePage() {
           chairs: [],
         });
       }
-
-      map.get(key)!.chairs.push(item);
+      map.get(item.location_id)!.chairs.push(item);
     }
-
     return Array.from(map.values());
   }, [filteredChairs]);
 
+  const hasActiveFilters = !!cityFilter || availableOnly || !!search.trim();
+
   return (
     <div className="container mx-auto max-w-7xl space-y-6 px-4 py-6">
-      <div className="space-y-2">
+      <div className="space-y-1">
         <h1 className="text-2xl font-bold">Explorar cadeiras</h1>
         <p className="text-sm text-muted-foreground">
           Veja barbearias, unidades e cadeiras disponíveis para reserva flexível.
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-background p-4">
+      {/* Filters */}
+      <div className="rounded-2xl border bg-background p-4 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+          <SlidersHorizontal className="h-4 w-4" />
+          Filtros
+        </div>
+
         <div className="flex flex-col gap-3 md:flex-row">
           <input
             type="text"
-            placeholder="Buscar por barbearia, unidade, cidade ou cadeira"
+            placeholder="Buscar por barbearia, unidade, cidade ou cadeira…"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            className="flex h-12 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none"
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex h-10 w-full rounded-xl border border-input bg-background px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
           />
 
-          <Button type="button" variant="outline" onClick={() => void loadExplore()}>
-            Atualizar
+          <select
+            value={cityFilter}
+            onChange={(e) => setCityFilter(e.target.value)}
+            className="h-10 rounded-xl border border-input bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-ring min-w-[160px]"
+          >
+            <option value="">Todas as cidades</option>
+            {cities.map((city) => (
+              <option key={city} value={city}>{city}</option>
+            ))}
+          </select>
+
+          <button
+            onClick={() => setAvailableOnly((v) => !v)}
+            className={`h-10 rounded-xl border px-4 text-sm font-medium whitespace-nowrap transition-colors ${
+              availableOnly
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-background text-muted-foreground border-input hover:bg-muted"
+            }`}
+          >
+            Só disponíveis
+          </button>
+
+          <Button variant="outline" size="sm" className="h-10 rounded-xl" onClick={() => void loadExplore()}>
+            <RefreshCw className="h-3.5 w-3.5" />
           </Button>
         </div>
+
+        {hasActiveFilters && (
+          <button
+            onClick={() => { setSearch(""); setCityFilter(""); setAvailableOnly(false); }}
+            className="text-xs text-muted-foreground hover:text-foreground underline"
+          >
+            Limpar filtros
+          </button>
+        )}
       </div>
 
-      {successMessage ? (
-        <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-          {successMessage}
-        </div>
-      ) : null}
-
-      {loading ? (
+      {loading && (
         <div className="rounded-2xl border bg-background p-6 text-sm text-muted-foreground">
-          Carregando cadeiras...
+          Carregando cadeiras…
         </div>
-      ) : null}
+      )}
 
-      {!loading && errorMessage ? (
+      {!loading && errorMessage && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {errorMessage}
         </div>
-      ) : null}
+      )}
 
-      {!loading && !errorMessage && groupedLocations.length === 0 ? (
-        <div className="rounded-2xl border bg-background p-6 text-sm text-muted-foreground">
-          Nenhuma cadeira encontrada para esse filtro.
+      {!loading && !errorMessage && groupedLocations.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <MapPin className="mb-3 h-8 w-8 text-muted-foreground/50" />
+          <p className="text-sm font-medium text-foreground">Nenhuma cadeira encontrada</p>
+          <p className="text-xs text-muted-foreground">
+            Tente ajustar os filtros ou buscar em outra cidade.
+          </p>
         </div>
-      ) : null}
+      )}
 
-      {!loading && !errorMessage ? (
+      {!loading && !errorMessage && groupedLocations.length > 0 && (
         <div className="space-y-8">
           {groupedLocations.map((location) => (
-            <section
-              key={location.location_id}
-              className="rounded-3xl border bg-background p-6"
-            >
-              <div className="space-y-1">
-                <h2 className="text-2xl font-semibold">{location.organization_name}</h2>
-                <p className="text-lg font-medium">{location.location_name}</p>
-                <p className="text-sm text-muted-foreground">
-                  {getAddressLine(location)}
-                </p>
+            <section key={location.location_id} className="rounded-3xl border bg-background p-6">
+              <div className="space-y-0.5">
+                <h2 className="text-xl font-semibold">{location.organization_name}</h2>
+                <p className="text-base font-medium text-foreground">{location.location_name}</p>
+                {getAddressLine(location) && (
+                  <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {getAddressLine(location)}
+                  </p>
+                )}
               </div>
 
               <div className="mt-6 grid gap-4 lg:grid-cols-2">
                 {location.chairs.map((chair) => {
                   const isSelected = selectedChairId === chair.chair_id;
-                  const isAvailableNow = chair.is_available_now;
                   const isReservable = chair.chair_status === "available";
+                  const isAvailableNow = chair.is_available_now;
 
                   return (
-                    <div
-                      key={chair.chair_id}
-                      className="rounded-2xl border bg-background p-5"
-                    >
+                    <div key={chair.chair_id} className="rounded-2xl border bg-background p-5">
                       <div className="mb-3 flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-semibold">
-                            {chair.chair_identifier}
-                          </h3>
-                        </div>
-
+                        <h3 className="text-base font-semibold">{chair.chair_identifier}</h3>
                         <span
                           className={`rounded-full px-3 py-1 text-xs font-medium ${
                             isReservable && isAvailableNow
                               ? "bg-green-100 text-green-700"
-                              : "bg-amber-100 text-amber-700"
+                              : isReservable
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-muted text-muted-foreground"
                           }`}
                         >
                           {isReservable
-                            ? isAvailableNow
-                              ? "Livre agora"
-                              : "Ocupada agora"
+                            ? isAvailableNow ? "Livre agora" : "Com reserva"
                             : getChairStatusLabel(chair.chair_status)}
                         </span>
                       </div>
 
                       <p className="mb-4 text-sm text-muted-foreground">
                         {isReservable
-                          ? "A reserva pode ser futura. O banco valida conflito de horario e horario de funcionamento."
-                          : "Esta cadeira precisa estar disponivel para receber novas reservas."}
+                          ? "Reservas futuras são validadas contra horários de funcionamento e conflitos existentes."
+                          : "Esta cadeira não está disponível para novas reservas."}
                       </p>
 
                       {isSelected ? (
                         <ChairBookingForm
                           chair={chair}
-                          onCancel={() => {
-                            setSelectedChairId(null);
-                            setSuccessMessage("");
-                          }}
+                          onCancel={() => setSelectedChairId(null)}
                           onSuccess={(bookingId) => {
                             setSelectedChairId(null);
                             navigate(`/barber/payment/${bookingId}`);
@@ -236,12 +265,9 @@ export default function ExplorePage() {
                           type="button"
                           className="w-full"
                           disabled={!isReservable}
-                          onClick={() => {
-                            setSuccessMessage("");
-                            setSelectedChairId(chair.chair_id);
-                          }}
+                          onClick={() => setSelectedChairId(chair.chair_id)}
                         >
-                          {isReservable ? "Reservar esta cadeira" : "Indisponivel para reserva"}
+                          {isReservable ? "Reservar esta cadeira" : "Indisponível para reserva"}
                         </Button>
                       )}
                     </div>
@@ -251,7 +277,7 @@ export default function ExplorePage() {
             </section>
           ))}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

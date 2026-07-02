@@ -22,6 +22,7 @@ const statusBadge: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 border border-amber-200",
   ended: "bg-muted text-muted-foreground border border-border",
   cancelled: "bg-rose-100 text-rose-700 border border-rose-200",
+  voided: "bg-rose-50 text-rose-400 border border-rose-100",
 };
 
 const statusLabel: Record<string, string> = {
@@ -29,6 +30,7 @@ const statusLabel: Record<string, string> = {
   pending: "Pendente",
   ended: "Encerrado",
   cancelled: "Cancelado",
+  voided: "Anulado",
 };
 
 const billingCycleLabel: Record<string, string> = {

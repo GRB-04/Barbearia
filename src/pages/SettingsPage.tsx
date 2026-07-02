@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings, Building2, Phone, Mail, Save } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Settings, Building2, Phone, Mail, Save, CalendarCheck } from "lucide-react";
 import { toast } from "sonner";
 
 export default function SettingsPage() {
@@ -15,10 +16,34 @@ export default function SettingsPage() {
 
   const [name, setName] = useState(organization?.name ?? "");
   const [saving, setSaving] = useState(false);
+  const [autoConfirm, setAutoConfirm] = useState<boolean>(true);
+  const [savingAutoConfirm, setSavingAutoConfirm] = useState(false);
 
   // Sync when org loads
-  if (!saving && organization && name === "") {
-    setName(organization.name);
+  useEffect(() => {
+    if (organization) {
+      if (name === "") setName(organization.name);
+      setAutoConfirm((organization as any).auto_confirm_bookings ?? true);
+    }
+  }, [organization?.id]);
+
+  async function handleAutoConfirmToggle(value: boolean) {
+    if (!organization?.id) return;
+    setAutoConfirm(value);
+    setSavingAutoConfirm(true);
+    try {
+      const { error } = await supabase
+        .from("organizations")
+        .update({ auto_confirm_bookings: value } as any)
+        .eq("id", organization.id);
+      if (error) throw error;
+      toast.success(value ? "Confirmação automática ativada." : "Aprovação manual ativada.");
+    } catch (err: any) {
+      setAutoConfirm(!value);
+      toast.error(err?.message || "Erro ao salvar configuração de confirmação.");
+    } finally {
+      setSavingAutoConfirm(false);
+    }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -113,6 +138,39 @@ export default function SettingsPage() {
               {saving ? "Salvando..." : "Salvar configurações"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* Booking approval */}
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarCheck className="h-4 w-4" />
+            Confirmação de reservas
+          </CardTitle>
+          <CardDescription>
+            Controla se novas reservas são confirmadas automaticamente ou aguardam aprovação manual.
+            Pode ser sobrescrito por unidade na página de cada local.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">
+                {autoConfirm ? "Confirmação automática" : "Aprovação manual"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {autoConfirm
+                  ? "Reservas confirmadas imediatamente ao serem criadas."
+                  : "Reservas ficam pendentes até o dono aprovar."}
+              </p>
+            </div>
+            <Switch
+              checked={autoConfirm}
+              onCheckedChange={handleAutoConfirmToggle}
+              disabled={savingAutoConfirm}
+            />
+          </div>
         </CardContent>
       </Card>
 

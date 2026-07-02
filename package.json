@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "types": "npx supabase gen types typescript --project-id lwpcbvwetacbuznynmri > src/integrations/supabase/types.ts"
+
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

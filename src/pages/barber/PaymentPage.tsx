@@ -82,13 +82,7 @@ export default function PaymentPage() {
         const now = new Date().getTime();
         const diff = Math.floor((due - now) / 1000);
         
-        console.log("Time Sync Check:", { 
-          due: new Date(paymentData.due_date).toISOString(), 
-          now: new Date(now).toISOString(), 
-          diff 
-        });
-
-        // If it just created and diff is slightly negative or zero, 
+        // If it just created and diff is slightly negative or zero,
         // give it at least the 5 minutes intended.
         setTimeLeft(diff > 0 ? diff : 300); 
       } catch (err: any) {

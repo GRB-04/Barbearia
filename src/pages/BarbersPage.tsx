@@ -58,7 +58,7 @@ export default function BarbersPage() {
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("barbers")
+      .from("organization_barbers")
       .select(
         "id, barber_profile_id, organization_id, full_name, email, phone, user_id"
       )
@@ -136,7 +136,7 @@ export default function BarbersPage() {
 
     try {
       const { data: existingBarber, error: existingBarberError } = await supabase
-        .from("barbers")
+        .from("organization_barbers")
         .select("id")
         .eq("organization_id", organization.id)
         .eq("email", normalizedEmail)
@@ -165,7 +165,7 @@ export default function BarbersPage() {
         .eq("email", normalizedEmail)
         .maybeSingle();
 
-      const { error } = await supabase.from("barbers").insert({
+      const { error } = await supabase.from("organization_barbers").insert({
         organization_id: organization.id,
         full_name: normalizedName,
         email: normalizedEmail,
@@ -213,7 +213,7 @@ export default function BarbersPage() {
       return;
     }
 
-    const { error } = await supabase.from("barbers").delete().eq("id", barberId);
+    const { error } = await supabase.from("organization_barbers").delete().eq("id", barberId);
 
     if (error) {
       console.error("[BarbersPage] delete barber error:", error);
@@ -233,7 +233,7 @@ export default function BarbersPage() {
     setChangingRoleId(barberId);
     try {
       const { error } = await supabase
-        .from("barbers")
+        .from("organization_barbers")
         .update({ role: newRole } as any)
         .eq("id", barberId);
 

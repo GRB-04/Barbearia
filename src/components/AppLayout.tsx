@@ -9,6 +9,7 @@ import {
   DollarSign,
   Settings,
   ShieldCheck,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import NotificationBell from "@/components/NotificationBell";
@@ -17,6 +18,7 @@ const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/locations", label: "Locais", icon: MapPin },
   { to: "/barbers", label: "Barbeiros", icon: User },
+  { to: "/bookings", label: "Reservas", icon: CalendarDays },
   { to: "/contracts", label: "Contratos", icon: FileText },
   { to: "/financial", label: "Financeiro", icon: DollarSign },
   { to: "/audit", label: "Auditoria", icon: ShieldCheck },

@@ -21,6 +21,7 @@ import OwnerDashboardPage from "./pages/OwnerDashboardPage";
 import LocationsPage from "./pages/LocationsPage";
 import LocationDetailPage from "./pages/LocationDetailPage";
 import BarbersPage from "./pages/BarbersPage";
+import BookingsPage from "./pages/BookingsPage";
 import ContractsPage from "./pages/ContractsPage";
 import FinancialReportPage from "./pages/FinancialReportPage";
 import SettingsPage from "./pages/SettingsPage";
@@ -125,6 +126,7 @@ function OwnerRoutes() {
         <Route path="locations" element={<LocationsPage />} />
         <Route path="locations/:id" element={<LocationDetailPage />} />
         <Route path="barbers" element={<BarbersPage />} />
+        <Route path="bookings" element={<BookingsPage />} />
         <Route path="contracts" element={<ContractsPage />} />
         <Route path="financial" element={<FinancialReportPage />} />
         <Route path="audit" element={<AuditLogPage />} />

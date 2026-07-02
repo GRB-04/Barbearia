@@ -32,6 +32,7 @@ import {
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 type ChairStatus = "available" | "occupied" | "maintenance";
 
@@ -196,6 +197,8 @@ export default function LocationDetailPage() {
 
   const [loadingPage, setLoadingPage] = useState(true);
   const [savingHours, setSavingHours] = useState(false);
+  const [locationAutoConfirm, setLocationAutoConfirm] = useState<boolean | null>(null);
+  const [savingAutoConfirm, setSavingAutoConfirm] = useState(false);
 
   const [addChairOpen, setAddChairOpen] = useState(false);
   const [editChairOpen, setEditChairOpen] = useState(false);
@@ -265,6 +268,7 @@ export default function LocationDetailPage() {
       setLocation(locationData);
       setChairs(chairData);
       setOperatingHours(parseOperatingHours(locationData.operating_hours));
+      setLocationAutoConfirm((locationData as any).auto_confirm_bookings ?? null);
     } catch (error) {
       console.error("[LocationDetailPage] fetchAll error:", error);
       toast.error("Não foi possível carregar o local.");
@@ -410,6 +414,24 @@ export default function LocationDetailPage() {
         [field]: value,
       },
     }));
+  };
+
+  const saveLocationAutoConfirm = async (value: boolean | null) => {
+    if (!location?.id) return;
+    setSavingAutoConfirm(true);
+    setLocationAutoConfirm(value);
+    try {
+      const { error } = await supabase
+        .from("locations")
+        .update({ auto_confirm_bookings: value } as any)
+        .eq("id", location.id);
+      if (error) throw error;
+      toast.success("Configuração de confirmação salva.");
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao salvar configuração.");
+    } finally {
+      setSavingAutoConfirm(false);
+    }
   };
 
   const saveOperatingHours = async () => {
@@ -617,6 +639,43 @@ export default function LocationDetailPage() {
               </form>
             </DialogContent>
           </Dialog>
+        </div>
+      </div>
+
+      {/* Per-location booking confirmation override */}
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Confirmação de reservas</h2>
+          <p className="text-xs text-muted-foreground">
+            Substitui o padrão da organização apenas para este local. "Herdar" usa o padrão da organização.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {(["inherit", "on", "off"] as const).map((opt) => {
+            const current =
+              locationAutoConfirm === null ? "inherit" : locationAutoConfirm ? "on" : "off";
+            const label =
+              opt === "inherit" ? "Herdar da org" : opt === "on" ? "Sempre confirmar" : "Sempre aprovar";
+            return (
+              <button
+                key={opt}
+                disabled={savingAutoConfirm}
+                onClick={() =>
+                  saveLocationAutoConfirm(
+                    opt === "inherit" ? null : opt === "on" ? true : false
+                  )
+                }
+                className={cn(
+                  "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                  current === opt
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:bg-muted"
+                )}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
