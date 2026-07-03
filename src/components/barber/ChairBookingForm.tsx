@@ -205,6 +205,7 @@ export default function ChairBookingForm({
   async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
     setError("");
+    setConflictDetected(false);
 
     const s = buildDate(date, start);
     const f = buildDate(date, end);
@@ -225,7 +226,6 @@ export default function ChairBookingForm({
       setConflictDetected(true);
       return;
     }
-    setConflictDetected(false);
 
     const hoursError = validateOperatingHours(s, f);
     if (hoursError) {
@@ -335,7 +335,11 @@ export default function ChairBookingForm({
             type="date"
             value={date}
             min={toDateStr(today)}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(e) => {
+              setDate(e.target.value);
+              setError("");
+              setConflictDetected(false);
+            }}
           />
         </div>
         <div className="space-y-1">
@@ -345,7 +349,11 @@ export default function ChairBookingForm({
           <Input
             type="time"
             value={start}
-            onChange={(e) => setStart(e.target.value)}
+            onChange={(e) => {
+              setStart(e.target.value);
+              setError("");
+              setConflictDetected(false);
+            }}
           />
         </div>
         <div className="space-y-1">
@@ -355,7 +363,11 @@ export default function ChairBookingForm({
           <Input
             type="time"
             value={end}
-            onChange={(e) => setEnd(e.target.value)}
+            onChange={(e) => {
+              setEnd(e.target.value);
+              setError("");
+              setConflictDetected(false);
+            }}
           />
         </div>
       </div>
@@ -403,7 +415,7 @@ export default function ChairBookingForm({
       )}
 
       <div className="flex gap-2 pt-1">
-        <Button type="submit" className="flex-1" disabled={saving}>
+        <Button type="submit" className="flex-1" disabled={saving || joiningWaitlist}>
           {saving ? "Processando..." : "Confirmar reserva"}
         </Button>
 
