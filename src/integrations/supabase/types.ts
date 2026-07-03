@@ -320,6 +320,122 @@ export type Database = {
           },
         ]
       }
+      chair_waitlist: {
+        Row: {
+          barber_profile_id: string
+          chair_id: string
+          converted_booking_id: string | null
+          created_at: string
+          desired_end_at: string
+          desired_start_at: string
+          hold_expires_at: string | null
+          id: string
+          location_id: string
+          notified_at: string | null
+          organization_id: string
+          status: Database["public"]["Enums"]["waitlist_status"]
+        }
+        Insert: {
+          barber_profile_id: string
+          chair_id: string
+          converted_booking_id?: string | null
+          created_at?: string
+          desired_end_at: string
+          desired_start_at: string
+          hold_expires_at?: string | null
+          id?: string
+          location_id: string
+          notified_at?: string | null
+          organization_id: string
+          status?: Database["public"]["Enums"]["waitlist_status"]
+        }
+        Update: {
+          barber_profile_id?: string
+          chair_id?: string
+          converted_booking_id?: string | null
+          created_at?: string
+          desired_end_at?: string
+          desired_start_at?: string
+          hold_expires_at?: string | null
+          id?: string
+          location_id?: string
+          notified_at?: string | null
+          organization_id?: string
+          status?: Database["public"]["Enums"]["waitlist_status"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chair_waitlist_barber_profile_id_fkey"
+            columns: ["barber_profile_id"]
+            isOneToOne: false
+            referencedRelation: "barber_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_chair_id_fkey"
+            columns: ["chair_id"]
+            isOneToOne: false
+            referencedRelation: "chairs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_chair_id_fkey"
+            columns: ["chair_id"]
+            isOneToOne: false
+            referencedRelation: "vw_public_chair_explore"
+            referencedColumns: ["chair_id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_converted_booking_id_fkey"
+            columns: ["converted_booking_id"]
+            isOneToOne: false
+            referencedRelation: "chair_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_converted_booking_id_fkey"
+            columns: ["converted_booking_id"]
+            isOneToOne: false
+            referencedRelation: "vw_barber_bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vw_location_occupancy"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vw_public_chair_explore"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chair_waitlist_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "vw_public_chair_explore"
+            referencedColumns: ["organization_id"]
+          },
+        ]
+      }
       chairs: {
         Row: {
           created_at: string
@@ -846,6 +962,7 @@ export type Database = {
           name: string
           owner_id: string | null
           updated_at: string | null
+          waitlist_hold_minutes: number
         }
         Insert: {
           auto_confirm_bookings?: boolean
@@ -855,6 +972,7 @@ export type Database = {
           name: string
           owner_id?: string | null
           updated_at?: string | null
+          waitlist_hold_minutes?: number
         }
         Update: {
           auto_confirm_bookings?: boolean
@@ -864,6 +982,7 @@ export type Database = {
           name?: string
           owner_id?: string | null
           updated_at?: string | null
+          waitlist_hold_minutes?: number
         }
         Relationships: []
       }
@@ -1076,6 +1195,7 @@ export type Database = {
         Returns: Json
       }
       current_barber_profile_id: { Args: never; Returns: string }
+      expire_waitlist_entries: { Args: never; Returns: undefined }
       get_chair_organization_id: {
         Args: { p_chair_id: string }
         Returns: string
@@ -1111,6 +1231,17 @@ export type Database = {
         Args: { p_permission: string }
         Returns: boolean
       }
+      my_waitlist_positions: {
+        Args: never
+        Returns: {
+          entry_id: string
+          queue_position: number
+        }[]
+      }
+      promote_next_waitlist_for_chair: {
+        Args: { p_chair_id: string }
+        Returns: undefined
+      }
       user_has_access_to_chair: {
         Args: { p_chair_id: string }
         Returns: boolean
@@ -1128,12 +1259,23 @@ export type Database = {
       app_role: "owner" | "manager" | "receptionist" | "barber"
       billing_cycle: "daily" | "weekly" | "monthly"
       booking_status: "pending" | "confirmed" | "cancelled"
-      chair_booking_status: "pending" | "confirmed" | "cancelled" | "completed"
+      chair_booking_status:
+        | "pending"
+        | "confirmed"
+        | "cancelled"
+        | "completed"
+        | "rejected"
       chair_status: "available" | "occupied" | "maintenance"
-      contract_status: "pending" | "active" | "ended" | "cancelled"
+      contract_status: "pending" | "active" | "ended" | "cancelled" | "voided"
       location_status: "active" | "inactive"
       payment_method_type: "pix" | "card" | "cash"
       payment_status: "pending" | "paid" | "overdue"
+      waitlist_status:
+        | "waiting"
+        | "hold"
+        | "converted"
+        | "expired"
+        | "cancelled"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1264,12 +1406,19 @@ export const Constants = {
       app_role: ["owner", "manager", "receptionist", "barber"],
       billing_cycle: ["daily", "weekly", "monthly"],
       booking_status: ["pending", "confirmed", "cancelled"],
-      chair_booking_status: ["pending", "confirmed", "cancelled", "completed"],
+      chair_booking_status: [
+        "pending",
+        "confirmed",
+        "cancelled",
+        "completed",
+        "rejected",
+      ],
       chair_status: ["available", "occupied", "maintenance"],
-      contract_status: ["pending", "active", "ended", "cancelled"],
+      contract_status: ["pending", "active", "ended", "cancelled", "voided"],
       location_status: ["active", "inactive"],
       payment_method_type: ["pix", "card", "cash"],
       payment_status: ["pending", "paid", "overdue"],
+      waitlist_status: ["waiting", "hold", "converted", "expired", "cancelled"],
     },
   },
 } as const
