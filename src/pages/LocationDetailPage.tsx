@@ -33,6 +33,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import LocationWaitlistSection from "@/components/LocationWaitlistSection";
 
 type ChairStatus = "available" | "occupied" | "maintenance";
 
@@ -951,6 +952,8 @@ export default function LocationDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {id && <LocationWaitlistSection locationId={id} />}
     </div>
   );
 }

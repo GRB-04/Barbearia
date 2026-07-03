@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
+import LocationWaitlistSection from "@/components/LocationWaitlistSection";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -185,6 +186,8 @@ export default function ManagerChairsPage() {
           })}
         </div>
       )}
+
+      {managerLocationId && <LocationWaitlistSection locationId={managerLocationId} />}
     </div>
   );
 }
