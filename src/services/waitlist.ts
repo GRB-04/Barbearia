@@ -105,6 +105,10 @@ export async function listMyWaitlist(): Promise<MyWaitlistEntry[]> {
     throw new Error(entriesRes.error.message || "Erro ao carregar sua fila.");
   }
 
+  if (positionsRes.error) {
+    console.warn("Falha ao carregar posições da fila:", positionsRes.error.message);
+  }
+
   const positionMap = new Map<string, number>();
   for (const p of positionsRes.data ?? []) {
     positionMap.set(p.entry_id, Number(p.queue_position));
