@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { getMyChairBookings, type BarberBookingItem } from "@/services/chairBookings";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import MyWaitlistSection from "@/components/barber/MyWaitlistSection";
 
 const statusBadge: Record<string, string> = {
   confirmed: "bg-emerald-100 text-emerald-700 border border-emerald-200",
@@ -93,6 +94,7 @@ export default function MyBookingsPage() {
 
   return (
     <div className="space-y-6 p-6 max-w-6xl mx-auto">
+      <MyWaitlistSection />
       <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Minhas reservas</h1>
