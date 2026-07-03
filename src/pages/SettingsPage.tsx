@@ -19,12 +19,15 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [autoConfirm, setAutoConfirm] = useState<boolean>(true);
   const [savingAutoConfirm, setSavingAutoConfirm] = useState(false);
+  const [holdMinutes, setHoldMinutes] = useState<string>("60");
+  const [savingHold, setSavingHold] = useState(false);
 
   // Sync when org loads
   useEffect(() => {
     if (organization) {
       if (name === "") setName(organization.name);
       setAutoConfirm((organization as any).auto_confirm_bookings ?? true);
+      setHoldMinutes(String((organization as any).waitlist_hold_minutes ?? 60));
     }
   }, [organization?.id]);
 
@@ -44,6 +47,28 @@ export default function SettingsPage() {
       toast.error(err?.message || "Erro ao salvar configuração de confirmação.");
     } finally {
       setSavingAutoConfirm(false);
+    }
+  }
+
+  async function handleSaveHoldMinutes() {
+    if (!organization?.id) return;
+    const value = Number(holdMinutes);
+    if (!Number.isInteger(value) || value < 5 || value > 1440) {
+      toast.error("Informe um valor entre 5 e 1440 minutos.");
+      return;
+    }
+    setSavingHold(true);
+    try {
+      const { error } = await supabase
+        .from("organizations")
+        .update({ waitlist_hold_minutes: value } as any)
+        .eq("id", organization.id);
+      if (error) throw error;
+      toast.success("Prazo da fila de espera atualizado.");
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao salvar prazo da fila.");
+    } finally {
+      setSavingHold(false);
     }
   }
 
@@ -171,6 +196,40 @@ export default function SettingsPage() {
               onCheckedChange={handleAutoConfirmToggle}
               disabled={savingAutoConfirm}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Waitlist hold */}
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarCheck className="h-4 w-4" />
+            Fila de espera
+          </CardTitle>
+          <CardDescription>
+            Quando uma reserva é cancelada, o primeiro barbeiro da fila recebe um prazo
+            exclusivo para confirmar a vaga antes de passar ao próximo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="holdMinutes">Prazo para confirmar a vaga (minutos)</Label>
+            <div className="flex gap-2">
+              <Input
+                id="holdMinutes"
+                type="number"
+                min={5}
+                max={1440}
+                value={holdMinutes}
+                onChange={(e) => setHoldMinutes(e.target.value)}
+                className="max-w-[140px]"
+              />
+              <Button onClick={handleSaveHoldMinutes} disabled={savingHold}>
+                {savingHold ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Entre 5 e 1440 minutos. Padrão: 60.</p>
           </div>
         </CardContent>
       </Card>
