@@ -285,10 +285,18 @@ begin
   end;
 
   -- cria booking conflitante direto (bypass validação de horário: insert como definer)
-  alter table public.chair_bookings disable trigger trg_validate_chair_booking;
+  -- trg_validate_chair_booking NÃO existe no banco vivo (drift descoberto na Task 2);
+  -- desabilitar condicionalmente para o script funcionar em ambos os estados
+  if exists (select 1 from pg_trigger where tgname = 'trg_validate_chair_booking'
+             and tgrelid = 'public.chair_bookings'::regclass) then
+    execute 'alter table public.chair_bookings disable trigger trg_validate_chair_booking';
+  end if;
   insert into public.chair_bookings (chair_id, barber_profile_id, organization_id, start_at, end_at, status)
   values (v_chair, v_other, v_org, v_start, v_end, 'confirmed');
-  alter table public.chair_bookings enable trigger trg_validate_chair_booking;
+  if exists (select 1 from pg_trigger where tgname = 'trg_validate_chair_booking'
+             and tgrelid = 'public.chair_bookings'::regclass) then
+    execute 'alter table public.chair_bookings enable trigger trg_validate_chair_booking';
+  end if;
 
   -- T2.2: agora insert deve passar e denormalizar location/org corretamente
   insert into public.chair_waitlist (chair_id, barber_profile_id, location_id, organization_id, desired_start_at, desired_end_at)
@@ -578,7 +586,12 @@ begin
   v_start := date_trunc('day', now() + interval '2 day') + interval '10 hours';
   v_end   := v_start + interval '5 hours';
 
-  alter table public.chair_bookings disable trigger trg_validate_chair_booking;
+  -- trg_validate_chair_booking NÃO existe no banco vivo (drift descoberto na Task 2);
+  -- desabilitar condicionalmente para o script funcionar em ambos os estados
+  if exists (select 1 from pg_trigger where tgname = 'trg_validate_chair_booking'
+             and tgrelid = 'public.chair_bookings'::regclass) then
+    execute 'alter table public.chair_bookings disable trigger trg_validate_chair_booking';
+  end if;
 
   -- b1 ocupa o slot
   insert into public.chair_bookings (chair_id, barber_profile_id, organization_id, start_at, end_at, status)
@@ -636,7 +649,10 @@ begin
     raise notice 'T3.4 SKIP (menos de 3 barbeiros no banco)';
   end if;
 
-  alter table public.chair_bookings enable trigger trg_validate_chair_booking;
+  if exists (select 1 from pg_trigger where tgname = 'trg_validate_chair_booking'
+             and tgrelid = 'public.chair_bookings'::regclass) then
+    execute 'alter table public.chair_bookings enable trigger trg_validate_chair_booking';
+  end if;
 end $$;
 rollback;
 ```
