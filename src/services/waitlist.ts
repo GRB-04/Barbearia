@@ -68,6 +68,9 @@ export function getFriendlyWaitlistError(message: string): string {
   if (msg.includes("futuro")) {
     return "O período desejado deve estar no futuro.";
   }
+  if (msg.includes("chair_waitlist_same_day_check")) {
+    return "O período deve começar e terminar no mesmo dia.";
+  }
   return message || "Erro ao entrar na fila.";
 }
 

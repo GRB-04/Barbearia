@@ -282,7 +282,6 @@ export default function ChairBookingForm({
 
   async function handleJoinWaitlist() {
     setJoiningWaitlist(true);
-    setError("");
     try {
       const s = buildDate(date, start);
       const f = buildDate(date, end);
