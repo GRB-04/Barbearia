@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { createBookingPayment } from "@/services/payments";
+import { joinWaitlist } from "@/services/waitlist";
 
 type Props = {
   chair: ExploreChairItem;
@@ -122,6 +123,8 @@ export default function ChairBookingForm({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [conflictDetected, setConflictDetected] = useState(false);
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
 
   async function load() {
     try {
@@ -219,8 +222,10 @@ export default function ChairBookingForm({
 
     if (hasConflict(s, f)) {
       setError("Essa cadeira já está reservada nesse horário.");
+      setConflictDetected(true);
       return;
     }
+    setConflictDetected(false);
 
     const hoursError = validateOperatingHours(s, f);
     if (hoursError) {
@@ -265,9 +270,36 @@ export default function ChairBookingForm({
       }
     } catch (err: any) {
       console.error("Booking creation failed:", err);
-      setError(getFriendlyBookingError(err.message ?? ""));
+      const friendly = getFriendlyBookingError(err.message ?? "");
+      setError(friendly);
+      if ((err.message ?? "").includes("chair_bookings_no_overlap_per_chair")) {
+        setConflictDetected(true);
+      }
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleJoinWaitlist() {
+    setJoiningWaitlist(true);
+    setError("");
+    try {
+      const s = buildDate(date, start);
+      const f = buildDate(date, end);
+      await joinWaitlist({
+        chairId: chair.chair_id,
+        organizationId: chair.organization_id,
+        locationId: chair.location_id,
+        desiredStartAt: s.toISOString(),
+        desiredEndAt: f.toISOString(),
+      });
+      toast.success("Você entrou na fila de espera! Avisaremos quando o horário vagar.");
+      setConflictDetected(false);
+      onCancel?.();
+    } catch (err: any) {
+      setError(err.message ?? "Erro ao entrar na fila.");
+    } finally {
+      setJoiningWaitlist(false);
     }
   }
 
@@ -353,8 +385,20 @@ export default function ChairBookingForm({
       </div>
 
       {error && (
-        <div className="rounded-lg bg-destructive/10 p-3 text-destructive text-xs font-medium">
-          {error}
+        <div className="rounded-lg bg-destructive/10 p-3 text-destructive text-xs font-medium space-y-2">
+          <p>{error}</p>
+          {conflictDetected && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              disabled={joiningWaitlist}
+              onClick={handleJoinWaitlist}
+            >
+              {joiningWaitlist ? "Entrando na fila..." : "Entrar na fila de espera deste horário"}
+            </Button>
+          )}
         </div>
       )}
 
