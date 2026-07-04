@@ -134,7 +134,7 @@ export default function OnboardingPage() {
 
   const handleWhatsApp = () => {
     const msg = encodeURIComponent(
-      `Olá! Você foi convidado para se juntar à nossa equipe no Barber Chair Connect.\nAcesse o link abaixo para criar sua conta:\n${inviteLink}`
+      `Olá! Você foi convidado para se juntar à nossa equipe no BarberHouse Connect.\nAcesse o link abaixo para criar sua conta:\n${inviteLink}`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
   };

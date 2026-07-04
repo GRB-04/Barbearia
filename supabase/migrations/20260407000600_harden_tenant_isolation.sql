@@ -1,7 +1,7 @@
 begin;
 
 -- =========================================================
--- BARBER CHAIR CONNECT
+-- BarberHouse CONNECT
 -- HARDENING DE ISOLAMENTO MULTI-TENANT (F002)
 -- =========================================================
 --

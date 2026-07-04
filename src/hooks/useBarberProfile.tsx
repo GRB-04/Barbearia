@@ -4,7 +4,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -63,8 +62,6 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
   const [barber, setBarber] = useState<Barber | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const hydratedRef = useRef(false);
-
   const saveCache = useCallback(
     (nextProfile: BarberProfile | null, nextBarber: Barber | null) => {
       if (!user?.id) return;
@@ -113,7 +110,6 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
         setBarber(null);
         setLoading(false);
         sessionStorage.removeItem(BARBER_PROFILE_CACHE_KEY);
-        hydratedRef.current = false;
         return;
       }
 
@@ -263,9 +259,7 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authLoading) return;
-    if (hydratedRef.current && user?.id) return;
 
-    hydratedRef.current = true;
     void fetchBarberProfile(false);
   }, [authLoading, user?.id, fetchBarberProfile]);
 

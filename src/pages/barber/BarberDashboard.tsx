@@ -337,7 +337,7 @@ export default function BarberDashboard() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Olá, {barberProfile.full_name}!</h1>
             <p className="text-muted-foreground">
-              Seja bem-vindo ao Barber Chair Connect. Você ainda não está vinculado a nenhuma equipe.
+              Seja bem-vindo ao BarberHouse Connect. Você ainda não está vinculado a nenhuma equipe.
             </p>
           </div>
 

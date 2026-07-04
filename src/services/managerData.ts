@@ -92,7 +92,8 @@ export async function fetchLocationContracts(locationId: string) {
       `
       *,
       chairs!inner ( identifier, location_id ),
-      barber_profiles ( full_name )
+      barber_profiles ( full_name ),
+      chair_bookings ( barber_profiles ( full_name ) )
     `
     )
     .eq("chairs.location_id", locationId)

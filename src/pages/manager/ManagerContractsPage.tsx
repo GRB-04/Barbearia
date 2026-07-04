@@ -20,6 +20,34 @@ type ContractRow = {
   barber_full_name: string | null;
 };
 
+function resolveBarberFullName(row: any): string | null {
+  const pickName = (value: any): string | null => {
+    if (!value) return null;
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const found = pickName(item);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    if (typeof value === "object") {
+      if (typeof value.full_name === "string" && value.full_name.trim()) {
+        return value.full_name.trim();
+      }
+
+      if ("barber_profiles" in value) {
+        return pickName(value.barber_profiles);
+      }
+    }
+
+    return null;
+  };
+
+  return pickName(row.barber_profiles) ?? pickName(row.chair_bookings) ?? null;
+}
+
 const statusBadge: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700 border border-emerald-200",
   pending: "bg-amber-100 text-amber-700 border border-amber-200",
@@ -62,7 +90,7 @@ export default function ManagerContractsPage() {
           billing_cycle: row.billing_cycle,
           notes: row.notes,
           chair_identifier: row.chairs?.identifier ?? null,
-          barber_full_name: row.barber_profiles?.full_name ?? null,
+          barber_full_name: resolveBarberFullName(row),
         }))
       );
     } catch (err: any) {

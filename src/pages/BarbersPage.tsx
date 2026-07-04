@@ -276,7 +276,7 @@ export default function BarbersPage() {
   const handleShareWhatsApp = () => {
     if (!inviteLink) return;
     const text = encodeURIComponent(
-      `Olá! Venha fazer parte da nossa equipe no Barber Chair Connect. Acesse o link para criar seu perfil de barbeiro: ${inviteLink}`
+      `Olá! Venha fazer parte da nossa equipe no BarberHouse Connect. Acesse o link para criar seu perfil de barbeiro: ${inviteLink}`
     );
     window.open(`https://wa.me/?text=${text}`, "_blank");
   };

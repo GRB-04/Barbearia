@@ -139,7 +139,20 @@ export default function BarberAuthPage() {
                 {loading ? "Vinculando..." : "Aceitar Convite da Barbearia"}
               </Button>
             )}
-            <Button variant="outline" className="w-full" onClick={() => navigate("/barber/dashboard")}>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={async () => {
+                setLoading(true);
+                try {
+                  await refreshBarberProfile();
+                } finally {
+                  setLoading(false);
+                  navigate("/barber/dashboard");
+                }
+              }}
+              disabled={loading}
+            >
               Ir para o Dashboard
             </Button>
           </div>
@@ -166,13 +179,13 @@ export default function BarberAuthPage() {
           </div>
 
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Barber Portal
+            Portal do Barbeiro
           </h1>
 
           <p className="text-sm text-muted-foreground text-center">
             {isInviteFlow
               ? "Cadastro vinculado à barbearia convidante."
-              : "Acesse sua conta de barbeiro."}
+              : "Acesse sua conta de barbeiro ou de gerente."}
           </p>
         </div>
 
@@ -267,9 +280,14 @@ export default function BarberAuthPage() {
         </p>
 
         <p className="text-center text-xs text-muted-foreground">
+          É gerente de um ponto? Entre com sua conta aqui — você será levado ao
+          Portal do Gerente automaticamente.
+        </p>
+
+        <p className="text-center text-xs text-muted-foreground">
           É dono da barbearia?{" "}
           <a href="/" className="text-primary hover:underline font-medium">
-            Ir para o portal do owner
+            Ir para o Portal da Organização
           </a>
         </p>
       </div>
