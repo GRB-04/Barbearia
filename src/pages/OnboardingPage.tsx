@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,12 @@ export default function OnboardingPage() {
   const { createOrganization, organization } = useOrganization();
   const { signOut } = useAuth();
 
-  const [step, setStep] = useState<Step>(organization ? "location" : "org");
+  const [step, setStep] = useState<Step>(() => {
+    const saved = localStorage.getItem("barber_onboarding_step") as Step | null;
+    // Se já houver um passo salvo, usamos ele. Caso contrário, baseia-se na existência da org.
+    if (saved && saved !== "done") return saved;
+    return organization ? "location" : "org";
+  });
 
   // Step 1 — Org
   const [orgName, setOrgName] = useState("");
@@ -37,7 +42,23 @@ export default function OnboardingPage() {
   const [locationState, setLocationState] = useState("");
   const [locationCapacity, setLocationCapacity] = useState(2);
   const [locationLoading, setLocationLoading] = useState(false);
-  const [createdLocationId, setCreatedLocationId] = useState<string | null>(null);
+  const [createdLocationId, setCreatedLocationId] = useState<string | null>(() => {
+    return localStorage.getItem("barber_onboarding_location_id");
+  });
+
+  // Salva o passo atual no localStorage para não perder em recarregamentos
+  useEffect(() => {
+    localStorage.setItem("barber_onboarding_step", step);
+  }, [step]);
+
+  // Salva o ID do local recém-criado no localStorage
+  useEffect(() => {
+    if (createdLocationId) {
+      localStorage.setItem("barber_onboarding_location_id", createdLocationId);
+    } else {
+      localStorage.removeItem("barber_onboarding_location_id");
+    }
+  }, [createdLocationId]);
 
   // Step 3 — Chair
   const [chairIdentifier, setChairIdentifier] = useState("C1");
@@ -58,9 +79,12 @@ export default function OnboardingPage() {
     if (!orgName.trim()) return;
     setOrgLoading(true);
     try {
+      // Sinaliza que estamos no fluxo ativo de onboarding
+      localStorage.setItem("barber_onboarding_in_progress", "true");
       await createOrganization(orgName.trim());
       setStep("location");
     } catch (err: any) {
+      localStorage.removeItem("barber_onboarding_in_progress");
       toast.error(err?.message || "Erro ao criar organização.");
     } finally {
       setOrgLoading(false);
@@ -109,12 +133,13 @@ export default function OnboardingPage() {
       const { error } = await supabase.from("chairs").insert({
         identifier: chairIdentifier.trim(),
         location_id: createdLocationId,
-        organization_id: organization.id,
         status: "available",
-        has_mirror: chairMirror,
-        has_sink: chairSink,
-        has_air_conditioning: chairAC,
-      });
+        resources: {
+          mirror: chairMirror,
+          sink: chairSink,
+          air_conditioning: chairAC,
+        },
+      } as any);
       if (error) throw error;
       toast.success("Cadeira criada com sucesso!");
       setStep("invite");
@@ -134,7 +159,7 @@ export default function OnboardingPage() {
 
   const handleWhatsApp = () => {
     const msg = encodeURIComponent(
-      `Olá! Você foi convidado para se juntar à nossa equipe no Barber Chair Connect.\nAcesse o link abaixo para criar sua conta:\n${inviteLink}`
+      `Olá! Você foi convidado para se juntar à nossa equipe no BarberHouse Connect.\nAcesse o link abaixo para criar sua conta:\n${inviteLink}`
     );
     window.open(`https://wa.me/?text=${msg}`, "_blank");
   };
@@ -326,7 +351,20 @@ export default function OnboardingPage() {
             >
               Enviar via WhatsApp
             </Button>
-            <Button type="button" variant="outline" className="w-full" onClick={() => { setStep("done"); setTimeout(() => window.location.href = "/locations", 800); }}>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                localStorage.removeItem("barber_onboarding_in_progress");
+                localStorage.removeItem("barber_onboarding_step");
+                localStorage.removeItem("barber_onboarding_location_id");
+                setStep("done");
+                setTimeout(() => {
+                  window.location.href = "/dashboard";
+                }, 800);
+              }}
+            >
               Concluir configuração →
             </Button>
           </div>
@@ -345,7 +383,12 @@ export default function OnboardingPage() {
         <p className="text-center">
           <button
             type="button"
-            onClick={() => signOut()}
+            onClick={() => {
+              localStorage.removeItem("barber_onboarding_in_progress");
+              localStorage.removeItem("barber_onboarding_step");
+              localStorage.removeItem("barber_onboarding_location_id");
+              signOut();
+            }}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             <LogOut className="h-3 w-3" /> Sair da conta

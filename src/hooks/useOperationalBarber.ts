@@ -36,8 +36,8 @@ export function useOperationalBarber(): UseOperationalBarberReturn {
     setLoading(true);
 
     try {
-      const { data, error } = await (supabase as any)
-        .from("barbers")
+      const { data, error } = await supabase
+        .from("organization_barbers")
         .select("id, barber_profile_id, organization_id, full_name, email, phone, created_at, updated_at")
         .eq("barber_profile_id", barberProfile.id)
         .order("created_at", { ascending: true })

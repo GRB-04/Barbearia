@@ -43,8 +43,8 @@ export default function AuthPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
             <LayoutGrid className="h-5 w-5 text-primary-foreground" />
           </div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">Portal do Owner</h1>
-          <p className="text-sm text-muted-foreground text-center">Gerencie sua barbearia, unidades e barbeiros.</p>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Portal da Organização</h1>
+          <p className="text-sm text-muted-foreground text-center">Acesso do dono: gerencie sua barbearia, unidades e barbeiros.</p>
         </div>
 
         {/* Tab switcher — large, clearly clickable buttons */}
@@ -109,11 +109,19 @@ export default function AuthPage() {
           </Button>
         </form>
 
-        <div className="pt-4 border-t border-border text-center">
-          <p className="text-xs text-muted-foreground mb-2">Você é um Barbeiro?</p>
-          <a id="link-barber-portal" href="/barber/auth" className="text-sm text-primary hover:underline font-medium">
-            Acessar Portal do Barbeiro
-          </a>
+        <div className="pt-4 border-t border-border text-center space-y-3">
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Você é um Barbeiro?</p>
+            <a id="link-barber-portal" href="/barber/auth" className="text-sm text-primary hover:underline font-medium">
+              Acessar Portal do Barbeiro
+            </a>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Você é Gerente de um ponto?</p>
+            <a id="link-manager-portal" href="/barber/auth" className="text-sm text-primary hover:underline font-medium">
+              Entrar no Portal do Gerente
+            </a>
+          </div>
         </div>
       </div>
     </div>

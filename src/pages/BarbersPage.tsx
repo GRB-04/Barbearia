@@ -58,11 +58,12 @@ export default function BarbersPage() {
     setLoading(true);
 
     const { data, error } = await supabase
-      .from("barbers")
+      .from("organization_barbers")
       .select(
-        "id, barber_profile_id, organization_id, full_name, email, phone, user_id"
+        "id, barber_profile_id, organization_id, full_name, email, phone, user_id, role"
       )
       .eq("organization_id", organization.id)
+      .neq("role", "manager")
       .order("full_name", { ascending: true });
 
     if (error) {
@@ -104,7 +105,9 @@ export default function BarbersPage() {
 
   useEffect(() => {
     void loadBarbers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id]);
+
 
   const resetForm = () => {
     setFullName("");
@@ -136,7 +139,7 @@ export default function BarbersPage() {
 
     try {
       const { data: existingBarber, error: existingBarberError } = await supabase
-        .from("barbers")
+        .from("organization_barbers")
         .select("id")
         .eq("organization_id", organization.id)
         .eq("email", normalizedEmail)
@@ -165,7 +168,7 @@ export default function BarbersPage() {
         .eq("email", normalizedEmail)
         .maybeSingle();
 
-      const { error } = await supabase.from("barbers").insert({
+      const { error } = await supabase.from("organization_barbers").insert({
         organization_id: organization.id,
         full_name: normalizedName,
         email: normalizedEmail,
@@ -193,27 +196,29 @@ export default function BarbersPage() {
     }
   };
 
-  const handleDeleteBarber = async (barberId: string) => {
+  const handleDeleteBarber = async (barber: BarberRow) => {
     const confirmed = window.confirm(
       "Tem certeza que deseja remover este barbeiro da organização?"
     );
 
     if (!confirmed) return;
 
-    const { data: relatedContracts } = await supabase
-      .from("contracts")
-      .select("id")
-      .eq("barber_id", barberId)
-      .limit(1);
+    if (barber.barber_profile_id) {
+      const { data: relatedContracts } = await supabase
+        .from("contracts")
+        .select("id")
+        .eq("barber_profile_id", barber.barber_profile_id)
+        .limit(1);
 
-    if (relatedContracts && relatedContracts.length > 0) {
-      toast.error(
-        "Não é possível remover este barbeiro pois ele possui contratos vinculados. Exclua os contratos primeiro na aba 'Contratos'."
-      );
-      return;
+      if (relatedContracts && relatedContracts.length > 0) {
+        toast.error(
+          "Não é possível remover este barbeiro pois ele possui contratos vinculados. Exclua os contratos primeiro na aba 'Contratos'."
+        );
+        return;
+      }
     }
 
-    const { error } = await supabase.from("barbers").delete().eq("id", barberId);
+    const { error } = await supabase.from("organization_barbers").delete().eq("id", barber.id);
 
     if (error) {
       console.error("[BarbersPage] delete barber error:", error);
@@ -233,8 +238,8 @@ export default function BarbersPage() {
     setChangingRoleId(barberId);
     try {
       const { error } = await supabase
-        .from("barbers")
-        .update({ role: newRole } as any)
+        .from("organization_barbers")
+        .update({ role: newRole as "owner" | "manager" | "receptionist" | "barber" })
         .eq("id", barberId);
 
       if (error) throw error;
@@ -244,13 +249,13 @@ export default function BarbersPage() {
       if (barber?.barber_profile_id) {
         await supabase
           .from("barber_profiles")
-          .update({ role: newRole } as any)
+          .update({ role: newRole as "owner" | "manager" | "receptionist" | "barber" })
           .eq("id", barber.barber_profile_id);
       }
 
       toast.success("Papel atualizado com sucesso.");
       setBarbers((prev) =>
-        prev.map((b) => (b.id === barberId ? { ...b, role: newRole as any } : b))
+        prev.map((b) => (b.id === barberId ? { ...b, role: newRole as BarberRow["role"] } : b))
       );
     } catch (err: any) {
       toast.error(err?.message || "Erro ao atualizar papel.");
@@ -273,7 +278,7 @@ export default function BarbersPage() {
   const handleShareWhatsApp = () => {
     if (!inviteLink) return;
     const text = encodeURIComponent(
-      `Olá! Venha fazer parte da nossa equipe no Barber Chair Connect. Acesse o link para criar seu perfil de barbeiro: ${inviteLink}`
+      `Olá! Venha fazer parte da nossa equipe no BarberHouse Connect. Acesse o link para criar seu perfil de barbeiro: ${inviteLink}`
     );
     window.open(`https://wa.me/?text=${text}`, "_blank");
   };
@@ -451,6 +456,17 @@ export default function BarbersPage() {
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-lg font-semibold">{barber.full_name}</h3>
+                        
+                        {/* Status Badge */}
+                        <span className={[
+                          "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold border",
+                          isLinked 
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                        ].join(" ")}>
+                          {isLinked ? "Ativo" : "Convite Pendente"}
+                        </span>
+
                         {barber.barber_profile_id && avgRatings[barber.barber_profile_id] != null && (
                           <span className="flex items-center gap-1 text-sm text-amber-500">
                             <Star className="h-4 w-4 fill-amber-400" />
@@ -459,11 +475,11 @@ export default function BarbersPage() {
                         )}
                         {/* Role badge */}
                         <span className={[
-                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
-                          (barber.role as string) === "receptionist" ? "bg-blue-100 text-blue-700" :
-                          (barber.role as string) === "manager" ? "bg-purple-100 text-purple-700" :
-                          (barber.role as string) === "owner" ? "bg-amber-100 text-amber-700" :
-                          "bg-muted text-muted-foreground"
+                          "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium border",
+                          (barber.role as string) === "receptionist" ? "bg-blue-50 text-blue-700 border-blue-100" :
+                          (barber.role as string) === "manager" ? "bg-purple-50 text-purple-700 border-purple-100" :
+                          (barber.role as string) === "owner" ? "bg-amber-50 text-amber-700 border-amber-100" :
+                          "bg-muted text-muted-foreground border-border"
                         ].join(" ")}>
                           <Shield className="h-3 w-3" />
                           {(barber.role as string) === "receptionist" ? "Recepcionista" :
@@ -515,7 +531,6 @@ export default function BarbersPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="barber">Barbeiro</SelectItem>
-                          <SelectItem value="manager">Gerente</SelectItem>
                           <SelectItem value="receptionist">Recepcionista</SelectItem>
                         </SelectContent>
                       </Select>
@@ -523,7 +538,7 @@ export default function BarbersPage() {
                     <Button
                       variant="destructive"
                       className="gap-2"
-                      onClick={() => void handleDeleteBarber(barber.id)}
+                      onClick={() => void handleDeleteBarber(barber)}
                     >
                       <Trash2 className="h-4 w-4" />
                       Remover

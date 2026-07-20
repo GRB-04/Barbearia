@@ -82,7 +82,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [authLoading, user?.id, user]);
+  }, [authLoading, user]);
 
   const refreshOrganization = useCallback(async () => {
     await fetchOrganization();

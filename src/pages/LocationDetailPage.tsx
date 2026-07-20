@@ -32,6 +32,8 @@ import {
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
+import LocationWaitlistSection from "@/components/LocationWaitlistSection";
 
 type ChairStatus = "available" | "occupied" | "maintenance";
 
@@ -196,6 +198,8 @@ export default function LocationDetailPage() {
 
   const [loadingPage, setLoadingPage] = useState(true);
   const [savingHours, setSavingHours] = useState(false);
+  const [locationAutoConfirm, setLocationAutoConfirm] = useState<boolean | null>(null);
+  const [savingAutoConfirm, setSavingAutoConfirm] = useState(false);
 
   const [addChairOpen, setAddChairOpen] = useState(false);
   const [editChairOpen, setEditChairOpen] = useState(false);
@@ -221,10 +225,67 @@ export default function LocationDetailPage() {
     air_conditioning: false,
   });
 
+  // Estados para edição dos dados básicos do local
+  const [editLocationOpen, setEditLocationOpen] = useState(false);
+  const [editLocName, setEditLocName] = useState("");
+  const [editLocAddress, setEditLocAddress] = useState("");
+  const [editLocCity, setEditLocCity] = useState("");
+  const [editLocState, setEditLocState] = useState("");
+  const [editLocCapacity, setEditLocCapacity] = useState(2);
+  const [savingLocation, setSavingLocation] = useState(false);
+
+  // Sincroniza estados do form de edição quando a unidade carregar
+  useEffect(() => {
+    if (location) {
+      setEditLocName(location.name);
+      setEditLocAddress(location.address ?? "");
+      setEditLocCity(location.city ?? "");
+      setEditLocState(location.state ?? "");
+      setEditLocCapacity(location.capacity ?? 2);
+    }
+  }, [location]);
+
   useEffect(() => {
     if (!organization?.id || !id) return;
     fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id, id]);
+
+  const handleSaveLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!location?.id) return;
+    if (!editLocName.trim() || !editLocCity.trim() || !editLocState.trim()) {
+      toast.error("Preencha nome, cidade e estado.");
+      return;
+    }
+    if (editLocCapacity < totalChairs) {
+      toast.error(`A capacidade máxima não pode ser menor que a quantidade de cadeiras cadastradas (${totalChairs}).`);
+      return;
+    }
+
+    setSavingLocation(true);
+    try {
+      const { error } = await supabase
+        .from("locations")
+        .update({
+          name: editLocName.trim(),
+          address: editLocAddress.trim() || null,
+          city: editLocCity.trim(),
+          state: editLocState.trim(),
+          capacity: editLocCapacity,
+        })
+        .eq("id", location.id);
+
+      if (error) throw error;
+      toast.success("Local atualizado com sucesso.");
+      setEditLocationOpen(false);
+      await fetchAll();
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao atualizar local.");
+    } finally {
+      setSavingLocation(false);
+    }
+  };
 
   const fetchAll = async () => {
     if (!organization?.id || !id) return;
@@ -265,6 +326,7 @@ export default function LocationDetailPage() {
       setLocation(locationData);
       setChairs(chairData);
       setOperatingHours(parseOperatingHours(locationData.operating_hours));
+      setLocationAutoConfirm(locationData.auto_confirm_bookings ?? null);
     } catch (error) {
       console.error("[LocationDetailPage] fetchAll error:", error);
       toast.error("Não foi possível carregar o local.");
@@ -336,8 +398,8 @@ export default function LocationDetailPage() {
         location_id: id,
         identifier: newChairIdentifier.trim(),
         status: newChairStatus,
-        resources: buildResources(newChairResources),
-      } as any);
+        resources: buildResources(newChairResources) as import("@/integrations/supabase/types").Json,
+      });
 
       if (error) {
         toast.error(error.message);
@@ -377,8 +439,8 @@ export default function LocationDetailPage() {
         .update({
           identifier: editChairIdentifier.trim(),
           status: editChairStatus,
-          resources: buildResources(editChairResources),
-        } as any)
+          resources: buildResources(editChairResources) as import("@/integrations/supabase/types").Json,
+        })
         .eq("id", selectedChair.id);
 
       if (error) {
@@ -412,6 +474,24 @@ export default function LocationDetailPage() {
     }));
   };
 
+  const saveLocationAutoConfirm = async (value: boolean | null) => {
+    if (!location?.id) return;
+    setSavingAutoConfirm(true);
+    setLocationAutoConfirm(value);
+    try {
+      const { error } = await supabase
+        .from("locations")
+        .update({ auto_confirm_bookings: value })
+        .eq("id", location.id);
+      if (error) throw error;
+      toast.success("Configuração de confirmação salva.");
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao salvar configuração.");
+    } finally {
+      setSavingAutoConfirm(false);
+    }
+  };
+
   const saveOperatingHours = async () => {
     if (!location?.id) return;
 
@@ -439,8 +519,8 @@ export default function LocationDetailPage() {
       const { error } = await supabase
         .from("locations")
         .update({
-          operating_hours: operatingHours,
-        } as any)
+          operating_hours: operatingHours as import("@/integrations/supabase/types").Json,
+        })
         .eq("id", location.id);
 
       if (error) {
@@ -517,6 +597,92 @@ export default function LocationDetailPage() {
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             Atualizar
           </Button>
+
+          {/* Modal para Editar Local */}
+          <Dialog
+            open={editLocationOpen}
+            onOpenChange={setEditLocationOpen}
+          >
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="rounded-xl">
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Editar local
+              </Button>
+            </DialogTrigger>
+
+            <DialogContent className="sm:max-w-[560px]">
+              <DialogHeader>
+                <DialogTitle>Editar local — {location.name}</DialogTitle>
+              </DialogHeader>
+
+              <form onSubmit={handleSaveLocation} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="locName">Nome</Label>
+                  <Input
+                    id="locName"
+                    value={editLocName}
+                    onChange={(e) => setEditLocName(e.target.value)}
+                    placeholder="Nome da unidade"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="locAddress">Endereço</Label>
+                  <Input
+                    id="locAddress"
+                    value={editLocAddress}
+                    onChange={(e) => setEditLocAddress(e.target.value)}
+                    placeholder="Endereço completo"
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="locCity">Cidade</Label>
+                    <Input
+                      id="locCity"
+                      value={editLocCity}
+                      onChange={(e) => setEditLocCity(e.target.value)}
+                      placeholder="Cidade"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="locState">Estado</Label>
+                    <Input
+                      id="locState"
+                      value={editLocState}
+                      onChange={(e) => setEditLocState(e.target.value)}
+                      placeholder="Estado"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="locCapacity">Capacidade de cadeiras</Label>
+                  <Input
+                    id="locCapacity"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={editLocCapacity}
+                    onChange={(e) => setEditLocCapacity(Number(e.target.value))}
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Define a capacidade máxima de cadeiras deste ponto (mínimo: {totalChairs} de cadeiras cadastradas).
+                  </p>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={savingLocation}>
+                  {savingLocation ? "Salvando..." : "Salvar alterações"}
+                </Button>
+              </form>
+            </DialogContent>
+          </Dialog>
 
           <Dialog
             open={addChairOpen}
@@ -617,6 +783,43 @@ export default function LocationDetailPage() {
               </form>
             </DialogContent>
           </Dialog>
+        </div>
+      </div>
+
+      {/* Per-location booking confirmation override */}
+      <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Confirmação de reservas</h2>
+          <p className="text-xs text-muted-foreground">
+            Substitui o padrão da organização apenas para este local. "Herdar" usa o padrão da organização.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {(["inherit", "on", "off"] as const).map((opt) => {
+            const current =
+              locationAutoConfirm === null ? "inherit" : locationAutoConfirm ? "on" : "off";
+            const label =
+              opt === "inherit" ? "Herdar da org" : opt === "on" ? "Sempre confirmar" : "Sempre aprovar";
+            return (
+              <button
+                key={opt}
+                disabled={savingAutoConfirm}
+                onClick={() =>
+                  saveLocationAutoConfirm(
+                    opt === "inherit" ? null : opt === "on" ? true : false
+                  )
+                }
+                className={cn(
+                  "rounded-xl border px-4 py-2 text-sm font-medium transition-colors",
+                  current === opt
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:bg-muted"
+                )}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -892,6 +1095,8 @@ export default function LocationDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {id && <LocationWaitlistSection locationId={id} />}
     </div>
   );
 }

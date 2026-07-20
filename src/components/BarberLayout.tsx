@@ -8,7 +8,9 @@ import {
   ClipboardCheck,
   Search,
   CalendarDays,
+  CalendarRange,
   TrendingUp,
+  UserCog,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,7 @@ function navLinkClass(isActive: boolean) {
 
 export default function BarberLayout() {
   const navigate = useNavigate();
-  const { isReceptionist, isAdmin } = useBarberProfile();
+  const { isReceptionist, isAdmin, barberProfile } = useBarberProfile();
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
@@ -46,23 +48,32 @@ export default function BarberLayout() {
       <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
         <aside className="border-b border-border bg-card lg:border-b-0 lg:border-r">
           <div className="flex h-full flex-col p-4">
-            <div className="mb-6 flex items-center justify-between gap-3 px-2">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-secondary">
-                  <Scissors className="h-5 w-5 text-foreground" />
+            {barberProfile && (
+              <div 
+                onClick={() => navigate("/barber/profile")}
+                className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-muted-foreground/10 bg-muted/20 p-3 cursor-pointer hover:bg-muted/30 transition-all select-none"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="h-10 w-10 rounded-full border border-muted-foreground/10 overflow-hidden bg-background flex items-center justify-center shrink-0">
+                    {(barberProfile as any).avatar_url ? (
+                      <img src={(barberProfile as any).avatar_url} alt={barberProfile.full_name} className="h-full w-full object-cover" />
+                    ) : (
+                      <User className="h-5 w-5 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{barberProfile.full_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {isReceptionist ? "Recepcionista" : barberProfile.role === "manager" ? "Gerente" : "Barbeiro"}
+                    </p>
+                  </div>
                 </div>
-
-                <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {isReceptionist ? "Recepção" : "Portal do barbeiro"}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {isReceptionist ? "Check-in e clientes" : "Contratos, clientes e atendimento"}
-                  </p>
+                
+                <div onClick={(e) => e.stopPropagation()}>
+                  <NotificationBell />
                 </div>
               </div>
-              <NotificationBell />
-            </div>
+            )}
 
             <nav className="flex flex-col gap-1">
               <NavLink
@@ -103,6 +114,16 @@ export default function BarberLayout() {
                 </NavLink>
               )}
 
+              {!isReceptionist && (
+                <NavLink
+                  to="/barber/chair-bookings"
+                  className={({ isActive }) => navLinkClass(isActive)}
+                >
+                  <CalendarRange className="h-4 w-4" />
+                  Reservas de cadeira
+                </NavLink>
+              )}
+
               <NavLink
                 to="/barber/clients"
                 className={({ isActive }) => navLinkClass(isActive)}
@@ -128,6 +149,14 @@ export default function BarberLayout() {
                   Meus ganhos
                 </NavLink>
               )}
+
+              <NavLink
+                to="/barber/profile"
+                className={({ isActive }) => navLinkClass(isActive)}
+              >
+                <UserCog className="h-4 w-4" />
+                Meu Perfil
+              </NavLink>
             </nav>
 
             <div className="mt-auto pt-6">

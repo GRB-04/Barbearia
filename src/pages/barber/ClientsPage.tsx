@@ -65,7 +65,8 @@ function clearDashboardCache() {
 }
 
 export default function ClientsPage() {
-  const { barberProfile } = useBarberProfile();
+  const { barberProfile, barber, isReceptionist } = useBarberProfile();
+  const effectiveOrgId = barber?.organization_id || barberProfile?.organization_id;
   const navigate = useNavigate();
 
   const [clients, setClients] = useState<BarberClient[]>([]);
@@ -91,9 +92,10 @@ export default function ClientsPage() {
   const [notes, setNotes] = useState("");
 
   useEffect(() => {
-    if (!barberProfile?.id || !barberProfile?.organization_id) return;
+    if (!barberProfile?.id) return;
     fetchClients();
-  }, [barberProfile?.id, barberProfile?.organization_id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barberProfile?.id, effectiveOrgId]);
 
   useEffect(() => {
     const term = search.trim().toLowerCase();
@@ -138,11 +140,17 @@ export default function ClientsPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase
-        .from("barber_clients")
-        .select("*")
-        .eq("barber_profile_id", barberProfile.id)
-        .order("full_name", { ascending: true });
+      const { data, error } = isReceptionist
+        ? await supabase
+            .from("barber_clients")
+            .select("*")
+            .eq("organization_id", effectiveOrgId)
+            .order("full_name", { ascending: true })
+        : await supabase
+            .from("barber_clients")
+            .select("*")
+            .eq("barber_profile_id", barberProfile.id)
+            .order("full_name", { ascending: true });
 
       if (error) {
         toast.error(error.message);
@@ -163,7 +171,7 @@ export default function ClientsPage() {
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!barberProfile?.id || !barberProfile?.organization_id) {
+    if (!barberProfile?.id || !effectiveOrgId) {
       toast.error("Perfil do barbeiro não encontrado.");
       return;
     }
@@ -177,7 +185,7 @@ export default function ClientsPage() {
 
     try {
       const { error } = await supabase.from("barber_clients").insert({
-        organization_id: barberProfile.organization_id,
+        organization_id: effectiveOrgId,
         barber_profile_id: barberProfile.id,
         full_name: fullName.trim(),
         phone: normalizeOptional(phone),
@@ -298,7 +306,7 @@ export default function ClientsPage() {
 
       // Audit log
       await supabase.from("audit_logs").insert({
-        organization_id: barberProfile?.organization_id ?? null,
+        organization_id: effectiveOrgId ?? null,
         action: "anonymize_client",
         details: { client_id: client.id, reason: "LGPD Art. 18 — solicitação do titular" },
       } as any);

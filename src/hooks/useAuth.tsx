@@ -128,6 +128,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       subscription.unsubscribe();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const refreshSession = async () => {
@@ -173,7 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUp = async (email: string, password: string, metadata?: any) => {
+  const signUp = async (email: string, password: string, metadata?: Record<string, unknown>) => {
     setLoading(true);
 
     try {
@@ -208,8 +209,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(null);
       setUser(null);
       clearCache();
-    } catch (err) {
-      throw err;
     } finally {
       setLoading(false);
     }
@@ -225,6 +224,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refreshSession,
     }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [session, user, loading]
   );
 

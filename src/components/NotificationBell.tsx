@@ -75,6 +75,7 @@ export default function NotificationBell() {
       .subscribe();
 
     return () => { void supabase.removeChannel(channel); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
   // Close on outside click

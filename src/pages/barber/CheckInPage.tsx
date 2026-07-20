@@ -59,6 +59,7 @@ type CheckInRow = {
   duration_minutes: number | null;
   notes: string | null;
   created_at: string | null;
+  barber_profile_id?: string | null;
 };
 
 type EnrichedCheckIn = CheckInRow & {
@@ -106,12 +107,19 @@ function calculateDurationMinutes(
 }
 
 export default function CheckInPage() {
-  const { barberProfile, barber, loading: barberLoading } = useBarberProfile();
+  const { barberProfile, barber, isReceptionist, loading: barberLoading } = useBarberProfile();
+  const effectiveOrgId = barber?.organization_id || barberProfile?.organization_id;
 
   const [clients, setClients] = useState<BarberClient[]>([]);
   const [contracts, setContracts] = useState<CurrentActiveContract[]>([]);
   const [bookings, setBookings] = useState<ActiveBooking[]>([]);
   const [checkIns, setCheckIns] = useState<CheckInRow[]>([]);
+
+  // State for Receptionist
+  const [barbersList, setBarbersList] = useState<{ id: string; full_name: string }[]>([]);
+  const [selectedBarberId, setSelectedBarberId] = useState("");
+  const [selectedBarberContracts, setSelectedBarberContracts] = useState<any[]>([]);
+  const [selectedBarberBookings, setSelectedBarberBookings] = useState<any[]>([]);
 
   const [selectedClientId, setSelectedClientId] = useState("");
   const [notes, setNotes] = useState("");
@@ -144,36 +152,65 @@ export default function CheckInPage() {
 
     try {
       const nowIso = new Date().toISOString();
+      const isRecep = isReceptionist;
+      const orgId = effectiveOrgId;
 
-      const [clientsResult, contractsResult, bookingsResult, checkInsResult] =
+      const [clientsResult, contractsResult, bookingsResult, checkInsResult, rosterResult] =
         await Promise.all([
-          supabase
-            .from("barber_clients")
-            .select("id, full_name, created_at")
-            .eq("barber_profile_id", barberProfile.id)
-            .order("full_name", { ascending: true }),
+          isRecep
+            ? supabase
+                .from("barber_clients")
+                .select("id, full_name, created_at")
+                .eq("organization_id", orgId)
+                .order("full_name", { ascending: true })
+            : supabase
+                .from("barber_clients")
+                .select("id, full_name, created_at")
+                .eq("barber_profile_id", barberProfile.id)
+                .order("full_name", { ascending: true }),
 
-          getMyCurrentActiveContracts(),
+          isRecep
+            ? Promise.resolve({ data: [], error: null })
+            : getMyCurrentActiveContracts(),
 
-          supabase
-            .from("chair_bookings")
-            .select(
-              "id, chair_id, organization_id, start_at, end_at, status, created_at"
-            )
-            .eq("barber_profile_id", barberProfile.id)
-            .in("status", ["pending", "confirmed"])
-            .lte("start_at", nowIso)
-            .gte("end_at", nowIso)
-            .order("start_at", { ascending: false }),
+          isRecep
+            ? Promise.resolve({ data: [], error: null })
+            : supabase
+                .from("chair_bookings")
+                .select(
+                  "id, chair_id, organization_id, start_at, end_at, status, created_at"
+                )
+                .eq("barber_profile_id", barberProfile.id)
+                .in("status", ["pending", "confirmed"])
+                .lte("start_at", nowIso)
+                .gte("end_at", nowIso)
+                .order("start_at", { ascending: false }),
 
-          supabase
-            .from("check_ins")
-            .select(
-              "id, client_id, organization_id, contract_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at"
-            )
-            .eq("barber_profile_id", barberProfile.id)
-            .order("created_at", { ascending: false })
-            .limit(20),
+          isRecep
+            ? supabase
+                .from("check_ins")
+                .select(
+                  "id, client_id, organization_id, contract_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at, barber_profile_id"
+                )
+                .eq("organization_id", orgId)
+                .order("created_at", { ascending: false })
+                .limit(20)
+            : supabase
+                .from("check_ins")
+                .select(
+                  "id, client_id, organization_id, contract_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at, barber_profile_id"
+                )
+                .eq("barber_profile_id", barberProfile.id)
+                .order("created_at", { ascending: false })
+                .limit(20),
+
+          isRecep
+            ? supabase
+                .from("organization_barbers")
+                .select("barber_profile_id, full_name")
+                .eq("organization_id", orgId)
+                .not("barber_profile_id", "is", null)
+            : Promise.resolve({ data: [], error: null })
         ]);
 
       if (clientsResult.error) {
@@ -194,9 +231,15 @@ export default function CheckInPage() {
         );
       }
 
+      if (rosterResult.error) {
+        throw new Error(
+          rosterResult.error.message || "Erro ao carregar barbeiros da equipe."
+        );
+      }
+
       const normalizedContracts: CurrentActiveContract[] = (
-        contractsResult ?? []
-      ).map((contract) => ({
+        contractsResult.data ?? contractsResult ?? []
+      ).map((contract: any) => ({
         id: contract.id,
         status: contract.status,
         chair_id: contract.chair_id,
@@ -204,6 +247,19 @@ export default function CheckInPage() {
         created_at: contract.created_at,
       }));
 
+      type RosterRow = {
+        barber_profile_id: string | null;
+        full_name: string | null;
+      };
+
+      const filteredBarbers = ((rosterResult.data ?? []) as unknown as RosterRow[])
+        .filter(b => b.barber_profile_id)
+        .map(b => ({
+          id: b.barber_profile_id!,
+          full_name: b.full_name
+        }));
+
+      setBarbersList(filteredBarbers);
       setClients((clientsResult.data as BarberClient[]) ?? []);
       setContracts(normalizedContracts);
       setBookings((bookingsResult.data as ActiveBooking[]) ?? []);
@@ -220,7 +276,7 @@ export default function CheckInPage() {
   }
 
   async function handleQuickCreateClient() {
-    if (!barberProfile?.id || !barberProfile?.organization_id) return;
+    if (!barberProfile?.id || !effectiveOrgId) return;
     if (!newClientName.trim()) {
       toast.error("Informe o nome do cliente.");
       return;
@@ -231,11 +287,11 @@ export default function CheckInPage() {
       const { data, error } = await supabase
         .from("barber_clients")
         .insert({
-          organization_id: barberProfile.organization_id,
+          organization_id: effectiveOrgId,
           barber_profile_id: barberProfile.id,
           full_name: newClientName.trim(),
           phone: newClientPhone.trim() || null,
-        } as any)
+        } as Record<string, unknown>)
         .select()
         .single();
 
@@ -259,9 +315,55 @@ export default function CheckInPage() {
   }
 
   useEffect(() => {
-    if (!barberProfile?.id || !barber?.id) return;
+    if (!barberProfile?.id || !effectiveOrgId) return;
     void loadData();
-  }, [barberProfile?.id, barber?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [barberProfile?.id, effectiveOrgId]);
+
+  useEffect(() => {
+    if (!selectedBarberId) {
+      setSelectedBarberContracts([]);
+      setSelectedBarberBookings([]);
+      return;
+    }
+
+    async function fetchBarberStatus() {
+      const nowIso = new Date().toISOString();
+      const [contractsRes, bookingsRes] = await Promise.all([
+        supabase
+          .from("contracts")
+          .select("id, status, organization_id, chair_id")
+          .eq("barber_profile_id", selectedBarberId)
+          .eq("status", "active"),
+        supabase
+          .from("chair_bookings")
+          .select("id, status, organization_id, chair_id")
+          .eq("barber_profile_id", selectedBarberId)
+          .in("status", ["pending", "confirmed"])
+          .lte("start_at", nowIso)
+          .gte("end_at", nowIso)
+      ]);
+
+      setSelectedBarberContracts(contractsRes.data ?? []);
+      setSelectedBarberBookings(bookingsRes.data ?? []);
+    }
+
+    void fetchBarberStatus();
+  }, [selectedBarberId]);
+
+  const barberMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const b of barbersList) {
+      map.set(b.id, b.full_name);
+    }
+    return map;
+  }, [barbersList]);
+
+  const getBarberNameOfCheckIn = (checkIn: EnrichedCheckIn) => {
+    if (!checkIn.barber_profile_id) return "—";
+    if (checkIn.barber_profile_id === barberProfile?.id) return barber?.full_name ?? "Você";
+    return barberMap.get(checkIn.barber_profile_id) ?? "Outro Barbeiro";
+  };
 
   const clientMap = useMemo(() => {
     const map = new Map<string, BarberClient>();
@@ -286,7 +388,9 @@ export default function CheckInPage() {
   const hasActiveContract = activeContractsCount > 0;
   const hasActiveBooking = activeBookingsCount > 0;
 
-  const hasValidAccess = hasActiveContract || hasActiveBooking;
+  const hasValidAccess = isReceptionist
+    ? (selectedBarberContracts.length > 0 || selectedBarberBookings.length > 0)
+    : (activeContractsCount > 0 || hasActiveBooking);
 
   const accessLabel = useMemo(() => {
     if (hasActiveContract && hasActiveBooking) {
@@ -315,15 +419,26 @@ export default function CheckInPage() {
       return;
     }
 
-    if (!hasValidAccess) {
+    if (isReceptionist && !selectedBarberId) {
+      toast.error("Selecione o barbeiro para o atendimento.");
+      return;
+    }
+
+    const hasValid = isReceptionist
+      ? (selectedBarberContracts.length > 0 || selectedBarberBookings.length > 0)
+      : hasValidAccess;
+
+    if (!hasValid) {
       toast.error(
-        "Você só pode registrar check-in com contrato ativo agora ou booking ativo agora."
+        isReceptionist
+          ? "O barbeiro selecionado não possui contrato ativo ou booking ativo no momento."
+          : "Você só pode registrar check-in com contrato ativo agora ou booking ativo agora."
       );
       return;
     }
 
-    const activeContract = contracts[0] ?? null;
-    const activeBooking = bookings[0] ?? null;
+    const activeContract = isReceptionist ? (selectedBarberContracts[0] ?? null) : (contracts[0] ?? null);
+    const activeBooking = isReceptionist ? (selectedBarberBookings[0] ?? null) : (bookings[0] ?? null);
 
     const organizationId =
       activeContract?.organization_id ?? activeBooking?.organization_id ?? null;
@@ -351,7 +466,7 @@ export default function CheckInPage() {
       }
 
       const insertPayload = {
-        barber_profile_id: barberProfile.id,
+        barber_profile_id: isReceptionist ? selectedBarberId : barberProfile.id,
         client_id: selectedClientId,
         organization_id: organizationId,
         contract_id: activeContract?.id ?? null,
@@ -458,25 +573,25 @@ export default function CheckInPage() {
       if (error) throw new Error(error.message || "Erro ao finalizar atendimento.");
 
       // Save rating if given
-      if (rating > 0 && barberProfile?.id && barberProfile?.organization_id) {
+      if (rating > 0 && barberProfile?.id && effectiveOrgId) {
         await supabase.from("barber_ratings").insert({
-          organization_id: barberProfile.organization_id,
+          organization_id: effectiveOrgId,
           barber_profile_id: barberProfile.id,
           check_in_id: checkIn.id,
           rating,
           comment: ratingComment.trim() || null,
-        } as any);
+        } as Record<string, unknown>);
       }
 
       // Audit log
-      if (barberProfile?.organization_id) {
+      if (effectiveOrgId) {
         await supabase.from("audit_logs").insert({
-          organization_id: barberProfile.organization_id,
+          organization_id: effectiveOrgId,
           action: "checkin.finished",
           entity: "check_ins",
           entity_id: checkIn.id,
           metadata: { service_amount: svcAmount, commission_amount: commissionAmount, duration_minutes: durationMinutes },
-        } as any);
+        } as Record<string, unknown>);
       }
 
       toast.success(`Atendimento finalizado! Comissão: R$ ${commissionAmount.toFixed(2)}`);
@@ -531,39 +646,75 @@ export default function CheckInPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-sm">Contratos válidos agora</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{activeContractsCount}</p>
-          </CardContent>
-        </Card>
+      {isReceptionist ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Contratos ativos na casa</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{checkIns.filter(c => c.status === 'in_progress').length}</p>
+              <p className="text-xs text-muted-foreground">Barbeiros em atendimento agora</p>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-sm">Bookings ativos agora</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold">{activeBookingsCount}</p>
-          </CardContent>
-        </Card>
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Fila de espera</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{checkIns.filter(c => c.status === 'checked_in').length}</p>
+              <p className="text-xs text-muted-foreground">Clientes aguardando atendimento</p>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-sm">Acesso para check-in</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Badge variant={hasValidAccess ? "default" : "outline"}>
-              {accessLabel}
-            </Badge>
-            <p className="text-sm text-muted-foreground">
-              Regra de acesso: contrato válido agora ou booking ativo agora.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Finalizados hoje</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">
+                {checkIns.filter(c => c.status === 'finished' || c.finished_at !== null).length}
+              </p>
+              <p className="text-xs text-muted-foreground">Atendimentos concluídos hoje</p>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Contratos válidos agora</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{activeContractsCount}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Bookings ativos agora</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-3xl font-bold">{activeBookingsCount}</p>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-sm">Acesso para check-in</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Badge variant={hasValidAccess ? "default" : "outline"}>
+                {accessLabel}
+              </Badge>
+              <p className="text-sm text-muted-foreground">
+                Regra de acesso: contrato válido agora ou booking ativo agora.
+              </p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <Card className="rounded-2xl shadow-sm">
         <CardHeader>
@@ -627,6 +778,24 @@ export default function CheckInPage() {
             </select>
           </div>
 
+          {isReceptionist && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Barbeiro / Cadeira</label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={selectedBarberId}
+                onChange={(e) => setSelectedBarberId(e.target.value)}
+              >
+                <option value="">Selecione um barbeiro</option>
+                {barbersList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.full_name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="space-y-2">
             <label className="text-sm font-medium">Observações</label>
             <textarea
@@ -637,10 +806,16 @@ export default function CheckInPage() {
             />
           </div>
 
-          {!hasValidAccess ? (
+          {!isReceptionist && !hasValidAccess ? (
             <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               Você não pode registrar check-in agora porque não há contrato válido
               agora nem booking ativo.
+            </div>
+          ) : null}
+
+          {isReceptionist && selectedBarberId && (selectedBarberContracts.length === 0 && selectedBarberBookings.length === 0) ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              O barbeiro selecionado não possui contrato ativo ou booking ativo no momento.
             </div>
           ) : null}
 
@@ -648,7 +823,7 @@ export default function CheckInPage() {
             <Button
               type="button"
               onClick={handleCreateCheckIn}
-              disabled={savingCheckIn || !hasValidAccess || !selectedClientId}
+              disabled={savingCheckIn || (!isReceptionist && !hasValidAccess) || (isReceptionist && (!selectedBarberId || (selectedBarberContracts.length === 0 && selectedBarberBookings.length === 0))) || !selectedClientId}
             >
               {savingCheckIn ? "Registrando..." : "Registrar check-in"}
             </Button>
@@ -690,6 +865,11 @@ export default function CheckInPage() {
                         <p className="text-base font-semibold text-foreground">
                           {checkIn.clientName}
                         </p>
+                        {isReceptionist && (
+                          <p className="text-xs text-muted-foreground">
+                            Barbeiro: <span className="font-medium text-foreground">{getBarberNameOfCheckIn(checkIn)}</span>
+                          </p>
+                        )}
                         <p className="text-sm text-muted-foreground">
                           Check-in em{" "}
                           {formatDateTime(checkIn.checked_in_at ?? checkIn.created_at)}

@@ -12,9 +12,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { TrendingUp, DollarSign, Scissors, RefreshCw, Star } from "lucide-react";
-import { format, startOfWeek, startOfMonth, startOfDay, endOfDay } from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
+import { formatCurrency, getPeriodRange, type Period } from "@/lib/financial";
 
 type CheckInRow = {
   id: string;
@@ -31,25 +32,6 @@ type CheckInRow = {
 
 type BarberClient = { id: string; full_name: string };
 
-type Period = "today" | "week" | "month";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-}
-
-function getPeriodRange(period: Period): { from: string; to: string } {
-  const now = new Date();
-  let from: Date;
-
-  if (period === "today") from = startOfDay(now);
-  else if (period === "week") from = startOfWeek(now, { locale: ptBR });
-  else from = startOfMonth(now);
-
-  return {
-    from: from.toISOString(),
-    to: endOfDay(now).toISOString(),
-  };
-}
 
 export default function EarningsPage() {
   const { barberProfile, barber, loading: barberLoading } = useBarberProfile();
@@ -99,6 +81,7 @@ export default function EarningsPage() {
 
   useEffect(() => {
     void loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [barberProfile?.id, period]);
 
   const clientMap = useMemo(() => {

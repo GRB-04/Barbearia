@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
+import ReceptionistDashboard from "./ReceptionistDashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import {
   UserRound,
   TrendingUp,
   DollarSign,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { startOfMonth, startOfDay, endOfDay } from "date-fns";
@@ -26,6 +28,7 @@ type Contract = {
   id: string;
   status: string | null;
   created_at: string;
+  barber_profile_id?: string | null;
 };
 
 type CheckIn = {
@@ -59,9 +62,16 @@ export default function BarberDashboard() {
   const {
     barberProfile,
     barber,
+    isReceptionist,
     loading: barberLoading,
     refreshBarberProfile,
   } = useBarberProfile();
+  const effectiveOrgId = barber?.organization_id || barberProfile?.organization_id;
+
+  // Recepcionistas têm um dashboard próprio — redireciona imediatamente
+  if (isReceptionist) {
+    return <ReceptionistDashboard />;
+  }
 
   const [clients, setClients] = useState<BarberClient[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -124,35 +134,60 @@ export default function BarberDashboard() {
     setLoading(true);
 
     try {
+      const isRecep = isReceptionist;
+      const orgId = effectiveOrgId;
+
       const [clientsResult, contractsResult, checkInsResult, earningsResult] = await Promise.all([
-        supabase
-          .from("barber_clients")
-          .select("id, full_name, created_at")
-          .eq("barber_profile_id", barberProfile.id)
-          .order("created_at", { ascending: false }),
+        isRecep
+          ? supabase
+              .from("barber_clients")
+              .select("id, full_name, created_at")
+              .eq("organization_id", orgId)
+              .order("created_at", { ascending: false })
+          : supabase
+              .from("barber_clients")
+              .select("id, full_name, created_at")
+              .eq("barber_profile_id", barberProfile.id)
+              .order("created_at", { ascending: false }),
 
-        supabase
-          .from("contracts")
-          .select("id, status, created_at")
-          .eq("barber_id", barber.id)
-          .order("created_at", { ascending: false }),
+        isRecep
+          ? supabase
+              .from("contracts")
+              .select("id, status, created_at, barber_profile_id")
+              .eq("organization_id", orgId)
+              .order("created_at", { ascending: false })
+          : supabase
+              .from("contracts")
+              .select("id, status, created_at, barber_profile_id")
+              .eq("barber_profile_id", barberProfile.id)
+              .order("created_at", { ascending: false }),
 
-        supabase
-          .from("check_ins")
-          .select(
-            "id, client_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at"
-          )
-          .eq("barber_profile_id", barberProfile.id)
-          .order("created_at", { ascending: false })
-          .limit(8),
+        isRecep
+          ? supabase
+              .from("check_ins")
+              .select(
+                "id, client_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at"
+              )
+              .eq("organization_id", orgId)
+              .order("created_at", { ascending: false })
+              .limit(8)
+          : supabase
+              .from("check_ins")
+              .select(
+                "id, client_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at"
+              )
+              .eq("barber_profile_id", barberProfile.id)
+              .order("created_at", { ascending: false })
+              .limit(8),
 
-        // Month earnings
-        supabase
-          .from("check_ins")
-          .select("commission_amount, service_amount, finished_at")
-          .eq("barber_profile_id", barberProfile.id)
-          .not("finished_at", "is", null)
-          .gte("finished_at", startOfMonth(new Date()).toISOString()),
+        isRecep
+          ? Promise.resolve({ data: [], error: null })
+          : supabase
+              .from("check_ins")
+              .select("commission_amount, service_amount, finished_at")
+              .eq("barber_profile_id", barberProfile.id)
+              .not("finished_at", "is", null)
+              .gte("finished_at", startOfMonth(new Date()).toISOString()),
       ]);
 
       if (clientsResult.error) {
@@ -174,7 +209,7 @@ export default function BarberDashboard() {
       const nextContracts = (contractsResult.data as Contract[]) ?? [];
       const nextCheckIns = (checkInsResult.data as CheckIn[]) ?? [];
 
-      if (earningsResult.error) {
+      if (!isRecep && earningsResult.error) {
         console.error("[BarberDashboard] earnings error:", earningsResult.error);
         // Non-fatal: continue with 0 earnings
       }
@@ -212,7 +247,9 @@ export default function BarberDashboard() {
 
     initialLoadDoneRef.current = true;
     void loadData(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [barberProfile?.id, barber?.id]);
+
 
   const clientMap = useMemo(() => {
     const map = new Map<string, BarberClient>();
@@ -233,6 +270,12 @@ export default function BarberDashboard() {
     () => contracts.filter((contract) => contract.status === "active").length,
     [contracts]
   );
+
+  const activeBarbersCount = useMemo(() => {
+    const activeContracts = contracts.filter((c) => c.status === "active");
+    const barberIds = activeContracts.map((c) => c.barber_profile_id).filter(Boolean);
+    return new Set(barberIds).size;
+  }, [contracts]);
 
   const attendedToday = useMemo(() => {
     const today = new Date();
@@ -334,11 +377,20 @@ export default function BarberDashboard() {
     return (
       <div className="space-y-6 p-6">
         <div className="max-w-2xl space-y-4">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">Olá, {barberProfile.full_name}!</h1>
-            <p className="text-muted-foreground">
-              Seja bem-vindo ao Barber Chair Connect. Você ainda não está vinculado a nenhuma equipe.
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full overflow-hidden border border-muted-foreground/10 bg-muted/20 flex items-center justify-center shrink-0">
+              {(barberProfile as any).avatar_url ? (
+                <img src={(barberProfile as any).avatar_url} alt={barberProfile.full_name} className="h-full w-full object-cover" />
+              ) : (
+                <UserRound className="h-6 w-6 text-muted-foreground" />
+              )}
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">Olá, {barberProfile.full_name}!</h1>
+              <p className="text-sm text-muted-foreground">
+                Seja bem-vindo ao BarberHouse Connect. Você ainda não está vinculado a nenhuma equipe.
+              </p>
+            </div>
           </div>
 
           <Card className="rounded-2xl border-dashed bg-muted/30">
@@ -370,15 +422,21 @@ export default function BarberDashboard() {
 
   return (
     <div className="space-y-6 p-6">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="space-y-1">
-          <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-muted-foreground">
-            Visão geral da sua operação
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Perfil operacional: <span className="font-medium">{barber.full_name}</span>
-          </p>
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="h-12 w-12 rounded-full overflow-hidden border border-muted-foreground/10 bg-muted/20 flex items-center justify-center shrink-0">
+            {(barberProfile as any).avatar_url ? (
+              <img src={(barberProfile as any).avatar_url} alt={barber.full_name} className="h-full w-full object-cover" />
+            ) : (
+              <UserRound className="h-6 w-6 text-muted-foreground" />
+            )}
+          </div>
+          <div className="space-y-0.5">
+            <h1 className="text-lg font-semibold text-foreground">Olá, {barber.full_name}!</h1>
+            <p className="text-xs text-muted-foreground">
+              Visão geral da sua operação — {isReceptionist ? "Recepcionista" : barberProfile.role === "manager" ? "Gerente" : "Barbeiro"}
+            </p>
+          </div>
         </div>
 
         <Button
@@ -394,83 +452,149 @@ export default function BarberDashboard() {
         </Button>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100">
-              <DollarSign className="h-5 w-5 text-emerald-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Ganhos hoje</p>
-              <p className="text-2xl font-bold text-emerald-600">
-                {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(todayEarnings)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      {isReceptionist ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100">
+                <Scissors className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Barbeiros ativos</p>
+                <p className="text-2xl font-bold text-emerald-600">
+                  {activeBarbersCount}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100">
-              <TrendingUp className="h-5 w-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Ganhos do mês</p>
-              <p className="text-2xl font-bold text-blue-600">
-                {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(monthEarnings)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100">
+                <UserRound className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Clientes da Casa</p>
+                <p className="text-2xl font-bold text-blue-600">{clients.length}</p>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-              <UserRound className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Clientes</p>
-              <p className="text-4xl font-bold">{clients.length}</p>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Contratos ativos</p>
+                <p className="text-4xl font-bold">{activeContractsCount}</p>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-              <Scissors className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Contratos ativos</p>
-              <p className="text-4xl font-bold">{activeContractsCount}</p>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <Clock3 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Atendimentos hoje</p>
+                <p className="text-4xl font-bold">{attendedToday}</p>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-              <Clock3 className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Atendimentos hoje</p>
-              <p className="text-4xl font-bold">{attendedToday}</p>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Finalizados hoje</p>
+                <p className="text-4xl font-bold">{finishedToday}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-100">
+                <DollarSign className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Ganhos hoje</p>
+                <p className="text-2xl font-bold text-emerald-600">
+                  {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(todayEarnings)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="rounded-2xl shadow-sm">
-          <CardContent className="flex items-center gap-4 p-5">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
-              <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Finalizados hoje</p>
-              <p className="text-4xl font-bold">{finishedToday}</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-100">
+                <TrendingUp className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Ganhos do mês</p>
+                <p className="text-2xl font-bold text-blue-600">
+                  {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(monthEarnings)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <UserRound className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Clientes</p>
+                <p className="text-4xl font-bold">{clients.length}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <Scissors className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Contratos ativos</p>
+                <p className="text-4xl font-bold">{activeContractsCount}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <Clock3 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Atendimentos hoje</p>
+                <p className="text-4xl font-bold">{attendedToday}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl shadow-sm">
+            <CardContent className="flex items-center gap-4 p-5">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-muted">
+                <CheckCircle2 className="h-5 w-5 text-muted-foreground" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Finalizados hoje</p>
+                <p className="text-4xl font-bold">{finishedToday}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="space-y-4">
         <h2 className="text-lg font-semibold tracking-tight">

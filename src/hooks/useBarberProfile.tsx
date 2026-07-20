@@ -4,16 +4,19 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import type { Tables } from "@/integrations/supabase/types";
+import {
+  parseManagerPermissions,
+  type ManagerPermissions,
+} from "@/lib/managerPermissions";
 
 type BarberProfile = Tables<"barber_profiles">;
-type Barber = Tables<"barbers">;
+type Barber = Tables<"organization_barbers">;
 
 type BarberProfileContextType = {
   barberProfile: BarberProfile | null;
@@ -22,13 +25,17 @@ type BarberProfileContextType = {
   isAdmin: boolean;
   isManager: boolean;
   isReceptionist: boolean;
+  isLocationManager: boolean;
+  managerLocationId: string | null;
+  managerPermissions: ManagerPermissions;
   refreshBarberProfile: () => Promise<void>;
   createBarberProfile: (
     fullName: string,
     phone?: string,
     customUserId?: string,
     customEmail?: string | null,
-    organizationId?: string | null
+    organizationId?: string | null,
+    avatarUrl?: string
   ) => Promise<BarberProfile>;
   claimBarberInvitation: (
     organizationId: string,
@@ -41,7 +48,7 @@ const BarberProfileContext = createContext<BarberProfileContextType | undefined>
   undefined
 );
 
-const BARBER_PROFILE_CACHE_KEY = "barber-profile-cache-v5";
+const BARBER_PROFILE_CACHE_KEY = "barber-profile-cache-v6";
 
 type CachedBarberProfilePayload = {
   userId: string;
@@ -55,8 +62,6 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
   const [barberProfile, setBarberProfile] = useState<BarberProfile | null>(null);
   const [barber, setBarber] = useState<Barber | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const hydratedRef = useRef(false);
 
   const saveCache = useCallback(
     (nextProfile: BarberProfile | null, nextBarber: Barber | null) => {
@@ -106,7 +111,6 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
         setBarber(null);
         setLoading(false);
         sessionStorage.removeItem(BARBER_PROFILE_CACHE_KEY);
-        hydratedRef.current = false;
         return;
       }
 
@@ -149,7 +153,7 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
         const nextProfile = profileData as BarberProfile;
 
         const { data: barberData, error: barberError } = await supabase
-          .from("barbers")
+          .from("organization_barbers")
           .select("*")
           .eq("barber_profile_id", nextProfile.id)
           .order("created_at", { ascending: true })
@@ -191,7 +195,8 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
       phone?: string,
       customUserId?: string,
       customEmail?: string | null,
-      organizationId?: string | null
+      organizationId?: string | null,
+      avatarUrl?: string
     ): Promise<BarberProfile> => {
       const targetUserId = customUserId ?? user?.id;
       const targetEmail = customEmail ?? user?.email ?? null;
@@ -211,6 +216,7 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
         email: targetEmail,
         phone: phone?.trim() || null,
         organization_id: organizationId ?? null,
+        avatar_url: avatarUrl ?? null,
       };
 
       const { data, error } = await supabase
@@ -256,26 +262,37 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (authLoading) return;
-    if (hydratedRef.current && user?.id) return;
 
-    hydratedRef.current = true;
     void fetchBarberProfile(false);
   }, [authLoading, user?.id, fetchBarberProfile]);
 
   const isAdmin = useMemo(() => {
-    const r = (barberProfile as any)?.role;
+    const r = (barberProfile as { role?: string })?.role;
     return r === "owner" || r === "manager";
   }, [barberProfile]);
 
   const isManager = useMemo(() => {
-    const r = (barberProfile as any)?.role;
+    const r = (barberProfile as { role?: string })?.role;
     return r === "owner" || r === "manager";
   }, [barberProfile]);
 
   const isReceptionist = useMemo(() => {
-    const r = (barberProfile as any)?.role;
+    const r = (barberProfile as { role?: string })?.role;
     return r === "receptionist";
   }, [barberProfile]);
+
+  const isLocationManager = useMemo(() => {
+    return (barber as { role?: string })?.role === "manager";
+  }, [barber]);
+
+  const managerLocationId = useMemo(() => {
+    if (!isLocationManager) return null;
+    return ((barber as { location_id?: string | null })?.location_id) ?? null;
+  }, [barber, isLocationManager]);
+
+  const managerPermissions = useMemo(() => {
+    return parseManagerPermissions((barber as { permissions?: unknown })?.permissions);
+  }, [barber]);
 
   const value = useMemo(
     () => ({
@@ -285,6 +302,9 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
       isAdmin,
       isManager,
       isReceptionist,
+      isLocationManager,
+      managerLocationId,
+      managerPermissions,
       refreshBarberProfile,
       createBarberProfile,
       claimBarberInvitation,
@@ -296,6 +316,9 @@ export function BarberProfileProvider({ children }: { children: ReactNode }) {
       isAdmin,
       isManager,
       isReceptionist,
+      isLocationManager,
+      managerLocationId,
+      managerPermissions,
       refreshBarberProfile,
       createBarberProfile,
       claimBarberInvitation,

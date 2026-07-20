@@ -1,32 +1,28 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export type ContractStatus = "pending" | "active" | "ended" | "cancelled";
-export type BillingCycle = "daily" | "weekly" | "monthly";
+export type ContractStatus = "pending" | "active" | "ended" | "cancelled" | "voided";
 
-export type ActiveContractItem = {
+export type MyContractListItem = {
   id: string;
   organization_id: string;
-  barber_id: string;
+  barber_profile_id: string | null;
   chair_id: string;
-  start_date: string;
-  end_date: string | null;
-  billing_cycle: BillingCycle | null;
+  booking_id: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  billing_cycle: string | null;
   price: number | null;
   status: ContractStatus;
   notes: string | null;
   created_at: string | null;
-  updated_at: string | null;
-  start_at: string | null;
-  end_at: string | null;
-};
-
-export type MyContractListItem = ActiveContractItem & {
+  esign_status: string | null;
+  esign_envelope_id: string | null;
   chair_identifier: string | null;
   location_id: string | null;
   location_name: string | null;
 };
 
-async function getCurrentUserId(): Promise<string> {
+async function getCurrentBarberProfileId(): Promise<string> {
   const {
     data: { user },
     error,
@@ -36,127 +32,91 @@ async function getCurrentUserId(): Promise<string> {
     throw new Error("Usuário não autenticado.");
   }
 
-  return user.id;
-}
-
-export async function getCurrentBarberProfileId(): Promise<string> {
-  const userId = await getCurrentUserId();
-
-  const { data, error } = await supabase
+  const { data, error: profileError } = await supabase
     .from("barber_profiles")
     .select("id")
-    .eq("user_id", userId)
+    .eq("user_id", user.id)
     .single();
 
-  if (error || !data) {
+  if (profileError || !data) {
     throw new Error("Perfil do barbeiro não encontrado.");
   }
 
   return data.id;
 }
 
-export async function getCurrentBarberId(): Promise<string> {
+type RawContractRow = {
+  id: string;
+  organization_id: string;
+  barber_profile_id: string | null;
+  chair_id: string;
+  booking_id: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  billing_cycle: string | null;
+  price: number | null;
+  status: string;
+  notes: string | null;
+  created_at: string | null;
+  esign_status: string | null;
+  esign_envelope_id: string | null;
+  chairs: {
+    identifier: string | null;
+    location_id: string | null;
+    locations: { id: string; name: string } | { id: string; name: string }[] | null;
+  } | null;
+};
+
+export async function getMyContracts(): Promise<MyContractListItem[]> {
   const barberProfileId = await getCurrentBarberProfileId();
 
   const { data, error } = await supabase
-    .from("barbers")
-    .select("id")
-    .eq("barber_profile_id", barberProfileId)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data) {
-    throw new Error("Barbeiro não encontrado.");
-  }
-
-  return data.id;
-}
-
-export async function getMyContracts(): Promise<MyContractListItem[]> {
-  const barberId = await getCurrentBarberId();
-
-  const { data: contractsData, error: contractsError } = await supabase
     .from("contracts")
     .select(`
       id,
       organization_id,
-      barber_id,
+      barber_profile_id,
       chair_id,
-      start_date,
-      end_date,
+      booking_id,
+      start_at,
+      end_at,
       billing_cycle,
       price,
       status,
       notes,
       created_at,
-      updated_at,
-      start_at,
-      end_at
+      esign_status,
+      esign_envelope_id,
+      chairs ( identifier, location_id, locations ( id, name ) )
     `)
-    .eq("barber_id", barberId)
+    .eq("barber_profile_id", barberProfileId)
     .order("start_at", { ascending: false });
 
-  if (contractsError) {
-    throw new Error(contractsError.message || "Erro ao carregar contratos.");
+  if (error) {
+    throw new Error(error.message || "Erro ao carregar contratos.");
   }
 
-  const contracts = (contractsData ?? []) as ActiveContractItem[];
-
-  if (contracts.length === 0) {
-    return [];
-  }
-
-  const chairIds = Array.from(
-    new Set(contracts.map((contract) => contract.chair_id).filter(Boolean))
-  );
-
-  const { data: chairsData, error: chairsError } = await supabase
-    .from("chairs")
-    .select("id, identifier, location_id")
-    .in("id", chairIds);
-
-  if (chairsError) {
-    throw new Error(chairsError.message || "Erro ao carregar cadeiras.");
-  }
-
-  const chairs =
-    (chairsData as Array<{
-      id: string;
-      identifier: string | null;
-      location_id: string;
-    }>) ?? [];
-
-  const locationIds = Array.from(
-    new Set(chairs.map((chair) => chair.location_id).filter(Boolean))
-  );
-
-  const { data: locationsData, error: locationsError } = await supabase
-    .from("locations")
-    .select("id, name")
-    .in("id", locationIds);
-
-  if (locationsError) {
-    throw new Error(locationsError.message || "Erro ao carregar unidades.");
-  }
-
-  const locations =
-    (locationsData as Array<{
-      id: string;
-      name: string;
-    }>) ?? [];
-
-  const chairsMap = new Map(chairs.map((chair) => [chair.id, chair]));
-  const locationsMap = new Map(
-    locations.map((location) => [location.id, location])
-  );
-
-  return contracts.map((contract) => {
-    const chair = chairsMap.get(contract.chair_id);
-    const location = chair ? locationsMap.get(chair.location_id) : null;
+  return ((data ?? []) as unknown as RawContractRow[]).map((row) => {
+    const chair = row.chairs;
+    const location = Array.isArray(chair?.locations)
+      ? chair.locations[0]
+      : chair?.locations;
 
     return {
-      ...contract,
+      id: row.id,
+      organization_id: row.organization_id,
+      barber_profile_id: row.barber_profile_id,
+      chair_id: row.chair_id,
+      booking_id: row.booking_id,
+      start_at: row.start_at,
+      end_at: row.end_at,
+      billing_cycle: row.billing_cycle,
+      price: row.price,
+      status: row.status as ContractStatus,
+      notes: row.notes,
+      created_at: row.created_at,
+      esign_status: row.esign_status,
+      esign_envelope_id: row.esign_envelope_id,
       chair_identifier: chair?.identifier ?? null,
       location_id: chair?.location_id ?? null,
       location_name: location?.name ?? null,
@@ -164,61 +124,60 @@ export async function getMyContracts(): Promise<MyContractListItem[]> {
   });
 }
 
-export async function getMyCurrentActiveContracts(): Promise<ActiveContractItem[]> {
-  const barberId = await getCurrentBarberId();
-  const now = new Date();
+export async function getMyCurrentActiveContracts(): Promise<MyContractListItem[]> {
+  const now = new Date().toISOString();
+  const contracts = await getMyContracts();
 
-  const { data, error } = await supabase
-    .from("contracts")
-    .select(`
-      id,
-      organization_id,
-      barber_id,
-      chair_id,
-      start_date,
-      end_date,
-      billing_cycle,
-      price,
-      status,
-      notes,
-      created_at,
-      updated_at,
-      start_at,
-      end_at
-    `)
-    .eq("barber_id", barberId)
-    .eq("status", "active")
-    .not("start_at", "is", null)
-    .not("end_at", "is", null)
-    .order("start_at", { ascending: false });
-
-  if (error) {
-    throw new Error(error.message || "Erro ao carregar contratos ativos.");
-  }
-
-  const contracts = (data ?? []) as ActiveContractItem[];
-
-  return contracts.filter((contract) => {
-    if (!contract.start_at || !contract.end_at) {
-      return false;
-    }
-
-    const start = new Date(contract.start_at);
-    const end = new Date(contract.end_at);
-
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      return false;
-    }
-
-    return start <= now && end >= now;
-  });
+  return contracts.filter(
+    (c) =>
+      c.status === "active" &&
+      c.start_at != null &&
+      c.end_at != null &&
+      c.start_at <= now &&
+      c.end_at >= now
+  );
 }
 
-export async function getMyCurrentContract(): Promise<ActiveContractItem | null> {
+export async function getMyCurrentContract(): Promise<MyContractListItem | null> {
   const contracts = await getMyCurrentActiveContracts();
   return contracts[0] ?? null;
 }
 
-export async function getMyActiveContracts(): Promise<ActiveContractItem[]> {
+export async function getMyActiveContracts(): Promise<MyContractListItem[]> {
   return getMyCurrentActiveContracts();
+}
+
+export async function signContract(contractId: string, fullSignatureName: string): Promise<void> {
+  const envelopeId = `ds_env_mock_${Math.random().toString(36).substring(2, 10)}${Date.now()}`;
+  
+  const { data: contract, error: updateError } = await supabase
+    .from("contracts")
+    .update({
+      esign_status: "signed",
+      esign_envelope_id: envelopeId,
+    } as any)
+    .eq("id", contractId)
+    .select("organization_id")
+    .single();
+
+  if (updateError) {
+    throw new Error(updateError.message || "Erro ao assinar o contrato no banco de dados.");
+  }
+
+  const orgId = contract?.organization_id || null;
+  const { error: auditError } = await supabase.from("audit_logs").insert({
+    organization_id: orgId,
+    action: "contract.signed",
+    entity: "contracts",
+    entity_id: contractId,
+    metadata: {
+      signed_by_name: fullSignatureName,
+      envelope_id: envelopeId,
+      signed_at: new Date().toISOString(),
+    },
+  } as any);
+
+  if (auditError) {
+    console.error("[signContract] Erro ao gravar log de auditoria:", auditError);
+  }
 }

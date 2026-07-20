@@ -1,13 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings, Building2, Phone, Mail, Save } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import { Settings, Building2, Phone, Mail, Save, CalendarCheck } from "lucide-react";
 import { toast } from "sonner";
+import ManagerUsersSection from "@/components/ManagerUsersSection";
 
 export default function SettingsPage() {
   const { organization, loading: orgLoading } = useOrganization();
@@ -15,10 +17,61 @@ export default function SettingsPage() {
 
   const [name, setName] = useState(organization?.name ?? "");
   const [saving, setSaving] = useState(false);
+  const [autoConfirm, setAutoConfirm] = useState<boolean>(true);
+  const [savingAutoConfirm, setSavingAutoConfirm] = useState(false);
+  const [holdMinutes, setHoldMinutes] = useState<string>("60");
+  const [savingHold, setSavingHold] = useState(false);
 
   // Sync when org loads
-  if (!saving && organization && name === "") {
-    setName(organization.name);
+  useEffect(() => {
+    if (organization) {
+      if (name === "") setName(organization.name);
+      setAutoConfirm(organization.auto_confirm_bookings ?? true);
+      setHoldMinutes(String(organization.waitlist_hold_minutes ?? 60));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organization?.id]);
+
+
+  async function handleAutoConfirmToggle(value: boolean) {
+    if (!organization?.id) return;
+    setAutoConfirm(value);
+    setSavingAutoConfirm(true);
+    try {
+      const { error } = await supabase
+        .from("organizations")
+        .update({ auto_confirm_bookings: value })
+        .eq("id", organization.id);
+      if (error) throw error;
+      toast.success(value ? "Confirmação automática ativada." : "Aprovação manual ativada.");
+    } catch (err: any) {
+      setAutoConfirm(!value);
+      toast.error(err?.message || "Erro ao salvar configuração de confirmação.");
+    } finally {
+      setSavingAutoConfirm(false);
+    }
+  }
+
+  async function handleSaveHoldMinutes() {
+    if (!organization?.id) return;
+    const value = Number(holdMinutes);
+    if (!Number.isInteger(value) || value < 5 || value > 1440) {
+      toast.error("Informe um valor entre 5 e 1440 minutos.");
+      return;
+    }
+    setSavingHold(true);
+    try {
+      const { error } = await supabase
+        .from("organizations")
+        .update({ waitlist_hold_minutes: value })
+        .eq("id", organization.id);
+      if (error) throw error;
+      toast.success("Prazo da fila de espera atualizado.");
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao salvar prazo da fila.");
+    } finally {
+      setSavingHold(false);
+    }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -116,6 +169,73 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Booking approval */}
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarCheck className="h-4 w-4" />
+            Confirmação de reservas
+          </CardTitle>
+          <CardDescription>
+            Controla se novas reservas são confirmadas automaticamente ou aguardam aprovação manual.
+            Pode ser sobrescrito por unidade na página de cada local.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">
+                {autoConfirm ? "Confirmação automática" : "Aprovação manual"}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {autoConfirm
+                  ? "Reservas confirmadas imediatamente ao serem criadas."
+                  : "Reservas ficam pendentes até o dono aprovar."}
+              </p>
+            </div>
+            <Switch
+              checked={autoConfirm}
+              onCheckedChange={handleAutoConfirmToggle}
+              disabled={savingAutoConfirm}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Waitlist hold */}
+      <Card className="rounded-2xl shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CalendarCheck className="h-4 w-4" />
+            Fila de espera
+          </CardTitle>
+          <CardDescription>
+            Quando uma reserva é cancelada, o primeiro barbeiro da fila recebe um prazo
+            exclusivo para confirmar a vaga antes de passar ao próximo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="holdMinutes">Prazo para confirmar a vaga (minutos)</Label>
+            <div className="flex gap-2">
+              <Input
+                id="holdMinutes"
+                type="number"
+                min={5}
+                max={1440}
+                value={holdMinutes}
+                onChange={(e) => setHoldMinutes(e.target.value)}
+                className="max-w-[140px]"
+              />
+              <Button onClick={handleSaveHoldMinutes} disabled={savingHold}>
+                {savingHold ? "Salvando..." : "Salvar"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">Entre 5 e 1440 minutos. Padrão: 60.</p>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Account info */}
       <Card className="rounded-2xl shadow-sm">
         <CardHeader>
@@ -166,6 +286,9 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Manager Users */}
+      <ManagerUsersSection />
     </div>
   );
 }

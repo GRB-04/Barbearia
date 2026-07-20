@@ -29,6 +29,7 @@ export default function ClientHistoryPage() {
   useEffect(() => {
     if (!clientId) return;
     fetchHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
   const fetchHistory = async () => {

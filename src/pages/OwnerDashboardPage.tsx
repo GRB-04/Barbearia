@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useOrganization } from "@/hooks/useOrganization";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +20,9 @@ import {
   Star,
   BarChart3,
 } from "lucide-react";
-import { startOfDay, startOfWeek, startOfMonth, endOfDay, format } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { format } from "date-fns";
 import { toast } from "sonner";
-
-type Period = "today" | "week" | "month";
+import { formatCurrency, getPeriodRange, PERIOD_LABELS, type Period } from "@/lib/financial";
 
 type BarberStats = {
   barber_id: string;
@@ -40,65 +39,51 @@ type ContractStats = {
   total_revenue: number;
 };
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
-}
 
-function getPeriodRange(period: Period) {
-  const now = new Date();
-  let from: Date;
-  if (period === "today") from = startOfDay(now);
-  else if (period === "week") from = startOfWeek(now, { locale: ptBR });
-  else from = startOfMonth(now);
-  return { from: from.toISOString(), to: endOfDay(now).toISOString() };
-}
-
-const periodLabel: Record<Period, string> = {
-  today: "Hoje",
-  week: "Esta semana",
-  month: "Este mês",
-};
+const periodLabel = PERIOD_LABELS;
 
 export default function OwnerDashboardPage() {
   const { organization } = useOrganization();
 
   const [period, setPeriod] = useState<Period>("month");
-  const [loading, setLoading] = useState(true);
 
-  const [barberStats, setBarberStats] = useState<BarberStats[]>([]);
-  const [hourStats, setHourStats] = useState<HourStats[]>([]);
-  const [contractStats, setContractStats] = useState<ContractStats>({ active: 0, total_revenue: 0 });
-  const [totalCheckIns, setTotalCheckIns] = useState(0);
+  type DashboardData = {
+    barberStats: BarberStats[];
+    hourStats: HourStats[];
+    contractStats: ContractStats;
+    totalCheckIns: number;
+  };
 
-  async function loadData() {
-    if (!organization?.id) {
-      setLoading(false);
-      return;
-    }
+  const {
+    data,
+    isFetching: loading,
+    refetch,
+  } = useQuery<DashboardData>({
+    queryKey: ["owner-dashboard", organization?.id, period],
+    enabled: !!organization?.id,
+    staleTime: 5 * 60_000, // 5 minutes
+    queryFn: async (): Promise<DashboardData> => {
+      const range = getPeriodRange(period);
 
-    setLoading(true);
-    const range = getPeriodRange(period);
-
-    try {
       const [contractsRes, checkInsRes, barbersRes] = await Promise.all([
         supabase
           .from("contracts")
-          .select("id, status, price, barber_id")
-          .eq("organization_id", organization.id)
+          .select("id, status, price, barber_profile_id")
+          .eq("organization_id", organization!.id)
           .in("status", ["active", "pending"]),
 
         supabase
           .from("check_ins")
           .select("id, barber_profile_id, service_amount, commission_amount, finished_at, started_at")
-          .eq("organization_id", organization.id)
+          .eq("organization_id", organization!.id)
           .not("finished_at", "is", null)
           .gte("finished_at", range.from)
           .lte("finished_at", range.to),
 
         supabase
-          .from("barbers")
+          .from("organization_barbers")
           .select("id, full_name, barber_profile_id")
-          .eq("organization_id", organization.id),
+          .eq("organization_id", organization!.id),
       ]);
 
       if (contractsRes.error) throw contractsRes.error;
@@ -107,25 +92,38 @@ export default function OwnerDashboardPage() {
 
       const contracts = contractsRes.data ?? [];
       const checkIns = checkInsRes.data ?? [];
-      const barbers = (barbersRes.data ?? []) as { id: string; full_name: string; barber_profile_id: string | null }[];
+      const barbers = (barbersRes.data ?? []) as {
+        id: string;
+        full_name: string;
+        barber_profile_id: string | null;
+      }[];
 
       // Contract stats
       const activeContracts = contracts.filter((c) => c.status === "active");
-      const totalContractRevenue = contracts.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
-      setContractStats({ active: activeContracts.length, total_revenue: totalContractRevenue });
+      const totalContractRevenue = contracts.reduce(
+        (sum, c) => sum + (Number(c.price) || 0),
+        0
+      );
+      const contractStats: ContractStats = {
+        active: activeContracts.length,
+        total_revenue: totalContractRevenue,
+      };
 
       // Check-in stats
-      setTotalCheckIns(checkIns.length);
+      const totalCheckIns = checkIns.length;
 
-      // Barber rankings — map barber_profile_id to barber
+      // Barber rankings
       const profileToBarber = new Map<string, { id: string; full_name: string }>();
       for (const b of barbers) {
-        if (b.barber_profile_id) profileToBarber.set(b.barber_profile_id, { id: b.id, full_name: b.full_name });
+        if (b.barber_profile_id)
+          profileToBarber.set(b.barber_profile_id, { id: b.id, full_name: b.full_name });
       }
 
       const rankMap = new Map<string, BarberStats>();
       for (const ci of checkIns) {
-        const barber = ci.barber_profile_id ? profileToBarber.get(ci.barber_profile_id) : null;
+        const barber = ci.barber_profile_id
+          ? profileToBarber.get(ci.barber_profile_id)
+          : null;
         if (!barber) continue;
 
         const existing = rankMap.get(barber.id) ?? {
@@ -142,8 +140,8 @@ export default function OwnerDashboardPage() {
         rankMap.set(barber.id, existing);
       }
 
-      setBarberStats(
-        Array.from(rankMap.values()).sort((a, b) => b.attendances - a.attendances)
+      const barberStats = Array.from(rankMap.values()).sort(
+        (a, b) => b.attendances - a.attendances
       );
 
       // Hour stats (peak hours)
@@ -154,24 +152,25 @@ export default function OwnerDashboardPage() {
         hourMap.set(hour, (hourMap.get(hour) ?? 0) + 1);
       }
 
-      const hours: HourStats[] = Array.from(hourMap.entries())
+      const hourStats: HourStats[] = Array.from(hourMap.entries())
         .map(([hour, count]) => ({ hour, count }))
         .sort((a, b) => b.count - a.count)
         .slice(0, 5);
 
-      setHourStats(hours);
-    } catch (err: any) {
-      toast.error(err?.message || "Erro ao carregar dashboard.");
-    } finally {
-      setLoading(false);
-    }
-  }
+      return { barberStats, hourStats, contractStats, totalCheckIns };
+    },
+  });
 
-  useEffect(() => {
-    void loadData();
-  }, [organization?.id, period]);
+  const barberStats = data?.barberStats ?? [];
+  const hourStats = data?.hourStats ?? [];
+  const contractStats = data?.contractStats ?? { active: 0, total_revenue: 0 };
+  const totalCheckIns = data?.totalCheckIns ?? 0;
 
-  const totalRevenue = useMemo(() => barberStats.reduce((s, b) => s + b.total_revenue, 0), [barberStats]);
+
+  const totalRevenue = useMemo(
+    () => barberStats.reduce((s, b) => s + b.total_revenue, 0),
+    [barberStats]
+  );
 
   return (
     <div className="space-y-6 p-6">
@@ -194,7 +193,7 @@ export default function OwnerDashboardPage() {
               <SelectItem value="month">Este mês</SelectItem>
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void loadData()} disabled={loading}>
+          <Button variant="outline" size="sm" className="rounded-xl" onClick={() => void refetch()} disabled={loading}>
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>

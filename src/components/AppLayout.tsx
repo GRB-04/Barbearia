@@ -9,14 +9,16 @@ import {
   DollarSign,
   Settings,
   ShieldCheck,
+  CalendarDays,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import NotificationBell from "@/components/NotificationBell";
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/dashboard", label: "Painel", icon: LayoutDashboard },
   { to: "/locations", label: "Locais", icon: MapPin },
   { to: "/barbers", label: "Barbeiros", icon: User },
+  { to: "/bookings", label: "Reservas", icon: CalendarDays },
   { to: "/contracts", label: "Contratos", icon: FileText },
   { to: "/financial", label: "Financeiro", icon: DollarSign },
   { to: "/audit", label: "Auditoria", icon: ShieldCheck },
@@ -35,7 +37,10 @@ export default function AppLayout() {
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
               <LayoutDashboard className="h-3.5 w-3.5 text-primary-foreground" />
             </div>
-            <span className="text-sm font-semibold tracking-tight text-foreground">Barber Chair</span>
+            <div>
+              <span className="block text-sm font-semibold tracking-tight text-foreground">BarberHouse</span>
+              <span className="block text-xs text-muted-foreground">Portal da organização</span>
+            </div>
           </div>
           <NotificationBell />
         </div>

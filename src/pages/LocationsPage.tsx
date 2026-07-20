@@ -41,7 +41,9 @@ export default function LocationsPage() {
   useEffect(() => {
     if (!organization?.id) return;
     void fetchLocations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id]);
+
 
   const fetchLocations = async () => {
     if (!organization?.id) return;
@@ -75,7 +77,7 @@ export default function LocationsPage() {
 
   const handleCreateLocation = async () => {
     if (!organization?.id) {
-      toast.error("OrganizaÃƒÂ§ÃƒÂ£o nÃƒÂ£o encontrada.");
+      toast.error("Organização não encontrada.");
       return;
     }
 
@@ -118,7 +120,7 @@ export default function LocationsPage() {
       return;
     }
 
-    toast.success("Location criada com sucesso.");
+    toast.success("Local criado com sucesso.");
     setOpen(false);
     resetForm();
     await fetchLocations();
@@ -129,9 +131,9 @@ export default function LocationsPage() {
     <div className="p-6 space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Locations</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Locais</h1>
           <p className="text-muted-foreground">
-            {locations.length} {locations.length === 1 ? "location" : "locations"}
+            {locations.length} {locations.length === 1 ? "local" : "locais"}
           </p>
         </div>
 
@@ -145,18 +147,18 @@ export default function LocationsPage() {
           <DialogTrigger asChild>
             <Button className="rounded-xl">
               <Plus className="mr-2 h-4 w-4" />
-              Add Location
+              Adicionar local
             </Button>
           </DialogTrigger>
 
           <DialogContent className="sm:max-w-[560px]">
             <DialogHeader>
-              <DialogTitle>New Location</DialogTitle>
+              <DialogTitle>Novo local</DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Name</label>
+                <label className="text-sm font-medium">Nome</label>
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -165,7 +167,7 @@ export default function LocationsPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Address</label>
+                <label className="text-sm font-medium">Endereço</label>
                 <Input
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
@@ -175,7 +177,7 @@ export default function LocationsPage() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">City</label>
+                  <label className="text-sm font-medium">Cidade</label>
                   <Input
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
@@ -184,7 +186,7 @@ export default function LocationsPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">State</label>
+                  <label className="text-sm font-medium">Estado</label>
                   <Input
                     value={state}
                     onChange={(e) => setState(e.target.value)}
@@ -194,11 +196,11 @@ export default function LocationsPage() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Capacity</label>
+                <label className="text-sm font-medium">Capacidade</label>
                 <Input
                   type="number"
                   min={1}
-                  max={5}
+                  max={50}
                   value={capacity}
                   onChange={(e) => setCapacity(Number(e.target.value))}
                   placeholder="2"
@@ -213,7 +215,7 @@ export default function LocationsPage() {
                 className="w-full"
                 disabled={creating}
               >
-                {creating ? "Creating..." : "Create Location"}
+                  {creating ? "Criando..." : "Criar local"}
               </Button>
             </div>
           </DialogContent>
@@ -222,12 +224,12 @@ export default function LocationsPage() {
 
       {loading ? (
         <div className="rounded-2xl border bg-card p-6">
-          <p className="text-sm text-muted-foreground">Carregando locations...</p>
+          <p className="text-sm text-muted-foreground">Carregando locais...</p>
         </div>
       ) : locations.length === 0 ? (
         <div className="rounded-2xl border bg-card p-10 text-center">
           <MapPin className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium">Nenhuma location cadastrada</p>
+          <p className="text-sm font-medium">Nenhum local cadastrado</p>
           <p className="text-xs text-muted-foreground">
             Crie a primeira unidade da sua barbearia.
           </p>

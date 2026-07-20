@@ -29,6 +29,54 @@ const actionColors: Record<string, string> = {
   "barber.removed": "bg-rose-100 text-rose-700",
 };
 
+const METADATA_KEYS_MAP: Record<string, string> = {
+  user_email: "E-mail do usuário",
+  old_role: "Cargo anterior",
+  new_role: "Novo cargo",
+  price: "Valor do aluguel",
+  billing_cycle: "Faturamento",
+  chair_identifier: "Cadeira",
+  location_name: "Unidade",
+  barber_name: "Barbeiro",
+  status: "Status",
+  cancellation_reason: "Motivo do cancelamento",
+  cancellation_fee: "Multa de rescisão",
+  user_id: "ID do Usuário",
+  full_name: "Nome completo",
+  email: "E-mail",
+  phone: "Telefone",
+};
+
+const VALUE_MAP: Record<string, string> = {
+  daily: "Diário",
+  weekly: "Semanal",
+  monthly: "Mensal",
+  active: "Ativo",
+  pending: "Pendente",
+  cancelled: "Cancelado",
+  ended: "Encerrado",
+  voided: "Anulado",
+  barber: "Barbeiro",
+  manager: "Gerente",
+  receptionist: "Recepcionista",
+  owner: "Owner",
+};
+
+function formatMetadataValue(key: string, value: any): string {
+  if (value === null || value === undefined) return "—";
+  
+  const valStr = String(value);
+  
+  if (key === "price" || key === "cancellation_fee") {
+    const num = Number(value);
+    if (!isNaN(num)) {
+      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
+    }
+  }
+
+  return VALUE_MAP[valStr] ?? valStr;
+}
+
 export default function AuditLogPage() {
   const { organization } = useOrganization();
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -54,7 +102,9 @@ export default function AuditLogPage() {
     }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void loadLogs(); }, [organization?.id]);
+
 
   return (
     <div className="space-y-6 p-6">
@@ -101,9 +151,21 @@ export default function AuditLogPage() {
                       </span>
                     </div>
                     {log.metadata && Object.keys(log.metadata).length > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {Object.entries(log.metadata).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-                      </p>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {Object.entries(log.metadata).map(([k, v]) => {
+                          const label = METADATA_KEYS_MAP[k] ?? k;
+                          const formattedValue = formatMetadataValue(k, v);
+                          return (
+                            <span
+                              key={k}
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground border border-border"
+                            >
+                              <strong className="text-foreground/80">{label}:</strong>
+                              <span>{formattedValue}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
                   <p className="shrink-0 text-xs text-muted-foreground">

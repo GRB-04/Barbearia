@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock3, FileText, MapPin, Scissors, XCircle } from "lucide-react";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { CalendarDays, Clock3, FileText, MapPin, Scissors, XCircle, PenTool } from "lucide-react";
 import { format, differenceInMinutes } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { toast } from "sonner";
 
-import { getMyContracts, type MyContractListItem } from "@/services/contracts";
+import { getMyContracts, signContract, type MyContractListItem } from "@/services/contracts";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ const statusBadge: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 border border-amber-200",
   ended: "bg-muted text-muted-foreground border border-border",
   cancelled: "bg-rose-100 text-rose-700 border border-rose-200",
+  voided: "bg-rose-50 text-rose-400 border border-rose-100",
 };
 
 const statusLabel: Record<string, string> = {
@@ -29,6 +30,7 @@ const statusLabel: Record<string, string> = {
   pending: "Pendente",
   ended: "Encerrado",
   cancelled: "Cancelado",
+  voided: "Anulado",
 };
 
 const billingCycleLabel: Record<string, string> = {
@@ -65,6 +67,104 @@ export default function MyContractsPage() {
   const [loading, setLoading] = useState(true);
   const [cancelTarget, setCancelTarget] = useState<MyContractListItem | null>(null);
   const [cancelling, setCancelling] = useState(false);
+
+  const [signTarget, setSignTarget] = useState<MyContractListItem | null>(null);
+  const [signing, setSigning] = useState(false);
+  const [signerName, setSignerName] = useState("");
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [hasSignature, setHasSignature] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.strokeStyle = "#4f46e5"; // Indigo color
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
+    if ("touches" in e) {
+      if (e.touches.length === 0) return;
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setIsDrawing(true);
+    setHasSignature(true);
+  };
+
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const rect = canvas.getBoundingClientRect();
+    let x, y;
+    if ("touches" in e) {
+      if (e.touches.length === 0) return;
+      x = e.touches[0].clientX - rect.left;
+      y = e.touches[0].clientY - rect.top;
+    } else {
+      x = e.clientX - rect.left;
+      y = e.clientY - rect.top;
+    }
+
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setHasSignature(false);
+  };
+
+  async function handleConfirmSign() {
+    if (!signTarget) return;
+    if (!signerName.trim()) {
+      toast.error("Por favor, digite seu nome completo para assinar.");
+      return;
+    }
+    if (!hasSignature) {
+      toast.error("Por favor, faça sua rubrica no painel de assinatura.");
+      return;
+    }
+
+    setSigning(true);
+    try {
+      await signContract(signTarget.id, signerName.trim());
+      toast.success("Contrato assinado digitalmente com sucesso!");
+      setSignTarget(null);
+      setSignerName("");
+      setHasSignature(false);
+      await loadContracts();
+    } catch (err: any) {
+      toast.error(err?.message || "Erro ao assinar o contrato.");
+    } finally {
+      setSigning(false);
+    }
+  }
 
   async function loadContracts() {
     setLoading(true);
@@ -109,7 +209,7 @@ export default function MyContractsPage() {
           cancelled_at: new Date().toISOString(),
           cancellation_fee: cancellationFine,
           cancellation_reason: "Cancelado pelo barbeiro via portal",
-        } as any)
+        } as Record<string, unknown>)
         .eq("id", cancelTarget.id);
 
       if (error) throw error;
@@ -121,7 +221,7 @@ export default function MyContractsPage() {
         entity: "contracts",
         entity_id: cancelTarget.id,
         metadata: { fee: cancellationFine, reason: "Cancelado pelo barbeiro" },
-      } as any);
+      } as Record<string, unknown>);
 
       toast.success("Contrato cancelado.");
       setCancelTarget(null);
@@ -135,6 +235,9 @@ export default function MyContractsPage() {
 
   const canCancel = (contract: MyContractListItem) =>
     contract.status === "active" || contract.status === "pending";
+
+  const canSign = (contract: MyContractListItem) =>
+    (contract.status === "active" || contract.status === "pending") && contract.esign_status !== "signed";
 
   return (
     <div className="space-y-6 p-6">
@@ -182,6 +285,15 @@ export default function MyContractsPage() {
                       <span className={cn("inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium", statusBadge[contract.status] ?? "bg-muted text-muted-foreground border border-border")}>
                         {statusLabel[contract.status] ?? contract.status}
                       </span>
+                      {contract.esign_status === "signed" ? (
+                        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-200">
+                          ✓ Assinado Digitalmente
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+                          ✍ Assinatura Pendente
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -217,8 +329,19 @@ export default function MyContractsPage() {
                     {contract.notes ? <p className="text-xs text-muted-foreground">{contract.notes}</p> : null}
                   </div>
 
-                  {canCancel(contract) && (
-                    <div className="shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {canSign(contract) && (
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="gap-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-medium"
+                        onClick={() => setSignTarget(contract)}
+                      >
+                        <PenTool className="h-4 w-4" />
+                        Assinar contrato
+                      </Button>
+                    )}
+                    {canCancel(contract) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -228,8 +351,8 @@ export default function MyContractsPage() {
                         <XCircle className="h-4 w-4" />
                         Cancelar contrato
                       </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -276,6 +399,110 @@ export default function MyContractsPage() {
               disabled={cancelling}
             >
               {cancelling ? "Cancelando..." : "Confirmar cancelamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Signature Dialog */}
+      <Dialog open={!!signTarget} onOpenChange={(open) => { 
+        if (!open) {
+          setSignTarget(null);
+          setSignerName("");
+          setHasSignature(false);
+        }
+      }}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PenTool className="h-5 w-5 text-violet-600" />
+              Assinatura Eletrônica do Contrato
+            </DialogTitle>
+            <DialogDescription>
+              Ao assinar, você declara estar ciente e de acordo com as cláusulas deste aluguel na unidade <strong>{signTarget?.location_name}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="rounded-xl border border-muted bg-muted/20 p-3 text-xs space-y-1.5 text-muted-foreground">
+              <p className="font-semibold text-foreground">Termos do Acordo:</p>
+              <ul className="list-disc pl-4 space-y-1">
+                <li>Uso exclusivo da cadeira <strong>{signTarget?.chair_identifier}</strong>.</li>
+                <li>Ciclo de cobrança: <strong>{signTarget?.billing_cycle === 'daily' ? 'Diário' : signTarget?.billing_cycle === 'weekly' ? 'Semanal' : 'Mensal'}</strong>.</li>
+                <li>Preço acordado: <strong>{formatPrice(signTarget?.price)}</strong>.</li>
+                <li>Data de início: <strong>{formatDate(signTarget?.start_at)} às {formatTime(signTarget?.start_at)}</strong>.</li>
+              </ul>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Nome Completo do Assinante
+              </label>
+              <input
+                type="text"
+                placeholder="Digite seu nome conforme documento"
+                value={signerName}
+                onChange={(e) => setSignerName(e.target.value)}
+                className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                disabled={signing}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Desenhe sua Rubrica/Assinatura
+                </label>
+                <button
+                  type="button"
+                  onClick={clearCanvas}
+                  className="text-xs text-violet-600 hover:underline"
+                  disabled={signing}
+                >
+                  Limpar
+                </button>
+              </div>
+              <div className="relative overflow-hidden rounded-xl border border-border bg-muted/10">
+                <canvas
+                  ref={canvasRef}
+                  width={384}
+                  height={150}
+                  onMouseDown={startDrawing}
+                  onMouseMove={draw}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onTouchStart={startDrawing}
+                  onTouchMove={draw}
+                  onTouchEnd={stopDrawing}
+                  className="touch-none cursor-crosshair bg-white w-full"
+                  style={{ height: '150px' }}
+                />
+              </div>
+              <p className="text-[10px] text-muted-foreground text-center">
+                Use o mouse ou a tela sensível ao toque para assinar no quadro acima.
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setSignTarget(null);
+                setSignerName("");
+                setHasSignature(false);
+              }} 
+              disabled={signing}
+              className="rounded-xl"
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmSign}
+              disabled={signing || !signerName.trim() || !hasSignature}
+              className="rounded-xl bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              {signing ? "Gravando assinatura..." : "Assinar Digitalmente"}
             </Button>
           </DialogFooter>
         </DialogContent>

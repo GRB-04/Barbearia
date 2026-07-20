@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { format } from "date-fns";
 import {
   createChairBooking,
   getChairBookingsByChairId,
@@ -11,6 +12,18 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { createBookingPayment } from "@/services/payments";
+import { joinWaitlist } from "@/services/waitlist";
+import { useBarberProfile } from "@/hooks/useBarberProfile";
+import { 
+  Calendar as CalendarIcon, 
+  Clock, 
+  CheckCircle2, 
+  XCircle, 
+  AlertTriangle, 
+  Lock, 
+  Coffee,
+  Sparkles
+} from "lucide-react";
 
 type Props = {
   chair: ExploreChairItem;
@@ -37,15 +50,11 @@ function toDateStr(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function toTimeStr(d: Date) {
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
 function buildDate(date: string, time: string) {
   return new Date(`${date}T${time}:00`);
 }
 
-function getFriendlyBookingError(message: string): string {
+export function getFriendlyBookingError(message: string): string {
   const msg = message.toLowerCase();
   if (msg.includes("chair_bookings_no_overlap_per_chair")) {
     return "Essa cadeira já está reservada nesse horário.";
@@ -66,10 +75,7 @@ function getFriendlyBookingError(message: string): string {
 }
 
 // Gets the operating hours config for a given JS date.
-// Supports both formats currently present in the app:
-// named keys: { monday: { open: true, start: "09:00", end: "19:00" } }
-// numeric keys: { "1": { enabled: true, open: "08:00", close: "18:00" } }
-function getDayConfig(locationHours: any, date: Date): { open: boolean; start?: string; end?: string } | null {
+export function getDayConfig(locationHours: any, date: Date): { open: boolean; start?: string; end?: string } | null {
   if (!locationHours) return null;
   const dayName = DOW_TO_NAME[date.getDay()];
   const raw = locationHours[dayName] ?? locationHours[date.getDay().toString()];
@@ -91,8 +97,61 @@ function getDayConfig(locationHours: any, date: Date): { open: boolean; start?: 
   };
 }
 
+// Gets the suggested booking slot (preserved for test compatibility)
+export function getSuggestedBookingSlot(now: Date, locationHours: any): { date: string; start: string; end: string } {
+  const targetDate = new Date(now);
+  if (targetDate.getMinutes() > 0) {
+    targetDate.setHours(targetDate.getHours() + 1);
+  }
+  targetDate.setMinutes(0, 0, 0);
+
+  for (let i = 0; i < 7; i++) {
+    const checkDate = new Date(targetDate);
+    checkDate.setDate(targetDate.getDate() + i);
+    
+    const config = getDayConfig(locationHours, checkDate);
+    if (config && config.open && config.start && config.end) {
+      const [openH, openM] = config.start.split(":").map(Number);
+      const [closeH, closeM] = config.end.split(":").map(Number);
+      
+      const openMinutes = openH * 60 + openM;
+      const closeMinutes = closeH * 60 + closeM;
+      
+      let checkStartMinutes = openMinutes;
+      if (i === 0) {
+        checkStartMinutes = Math.max(openMinutes, targetDate.getHours() * 60);
+      }
+      
+      if (checkStartMinutes + 240 <= closeMinutes) {
+        const startH = Math.floor(checkStartMinutes / 60);
+        const startM = checkStartMinutes % 60;
+        
+        const endH = startH + 4;
+        const endM = startM;
+        
+        const padHour = (h: number) => String(h).padStart(2, "0");
+        const padMin = (m: number) => String(m).padStart(2, "0");
+        
+        return {
+          date: toDateStr(checkDate),
+          start: `${padHour(startH)}:${padMin(startM)}`,
+          end: `${padHour(endH)}:${padMin(endM)}`
+        };
+      }
+    }
+  }
+
+  const fallback = new Date(now);
+  fallback.setHours(9, 0, 0, 0);
+  return {
+    date: toDateStr(fallback),
+    start: "09:00",
+    end: "14:00"
+  };
+}
+
 // Format operating hours for display
-function formatDayHours(locationHours: any, date: Date): string {
+export function formatDayHours(locationHours: any, date: Date): string {
   const config = getDayConfig(locationHours, date);
   if (!config) return "Sem horário definido";
   if (config.open === false) return "Fechado";
@@ -105,16 +164,18 @@ export default function ChairBookingForm({
   onCancel,
   onSuccess,
 }: Props) {
+  const { barberProfile } = useBarberProfile();
+  const currentBarberProfileId = barberProfile?.id;
+
   const today = useMemo(() => {
     const d = new Date();
-    // Start with current date, default time to 09:00 for UI convenience
     d.setHours(9, 0, 0, 0);
     return d;
   }, []);
 
   const [date, setDate] = useState(toDateStr(today));
-  const [start, setStart] = useState("09:00");
-  const [end, setEnd] = useState("14:00");
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("13:00");
   const [notes, setNotes] = useState("");
 
   const [bookings, setBookings] = useState<ChairBookingTimeRow[]>([]);
@@ -122,6 +183,7 @@ export default function ChairBookingForm({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
 
   async function load() {
     try {
@@ -144,7 +206,8 @@ export default function ChairBookingForm({
       }
 
       if (locationRes.status === "fulfilled" && !locationRes.value.error) {
-        setLocationHours(locationRes.value.data?.operating_hours ?? null);
+        const hours = locationRes.value.data?.operating_hours ?? null;
+        setLocationHours(hours);
       } else {
         console.warn(
           "Could not load location operating hours:",
@@ -161,15 +224,19 @@ export default function ChairBookingForm({
 
   useEffect(() => {
     load();
+    setError("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chair.chair_id]);
 
-  function hasConflict(s: Date, e: Date) {
-    return bookings.some((b) => {
-      const bs = new Date(b.start_at);
-      const be = new Date(b.end_at);
-      return s < be && e > bs;
-    });
-  }
+  // Suggest a default valid slot when locationHours are loaded
+  useEffect(() => {
+    if (locationHours) {
+      const suggestion = getSuggestedBookingSlot(new Date(), locationHours);
+      setDate(suggestion.date);
+      setStartTime(suggestion.start);
+      setEndTime(suggestion.end);
+    }
+  }, [locationHours]);
 
   // Validate against operating hours
   function validateOperatingHours(s: Date, e: Date): string | null {
@@ -199,34 +266,93 @@ export default function ChairBookingForm({
     return null;
   }
 
+  // Filter bookings for the selected date
+  const bookingsOnSelectedDate = useMemo(() => {
+    if (!date) return [];
+    return bookings.filter((b) => {
+      const bDate = toDateStr(new Date(b.start_at));
+      return bDate === date && b.status !== "cancelled" && b.status !== "rejected";
+    });
+  }, [bookings, date]);
+
+  // Perform reactive live validation
+  const validation = useMemo(() => {
+    if (!date || !startTime || !endTime) {
+      return { isValid: false, error: "Selecione a data e horários.", conflict: false, conflictOwn: false };
+    }
+
+    const s = buildDate(date, startTime);
+    const f = buildDate(date, endTime);
+
+    if (f <= s) {
+      return { isValid: false, error: "O horário de término deve ser após o horário de início.", conflict: false, conflictOwn: false };
+    }
+
+    // 1. Minimum duration (4 hours)
+    const durationMs = f.getTime() - s.getTime();
+    if (durationMs < 4 * 60 * 60 * 1000) {
+      return { isValid: false, error: "A reserva precisa ter no mínimo 4 horas.", conflict: false, conflictOwn: false };
+    }
+
+    // 2. Start time in the past
+    if (s < new Date()) {
+      return { isValid: false, error: "O horário de início não pode ser no passado.", conflict: false, conflictOwn: false };
+    }
+
+    // 3. Operating hours validation
+    const hoursError = validateOperatingHours(s, f);
+    if (hoursError) {
+      return { isValid: false, error: hoursError, conflict: false, conflictOwn: false };
+    }
+
+    // 4. Overlap/Conflict check
+    const overlap = bookings.find((b) => {
+      if (b.status === "cancelled" || b.status === "rejected") return false;
+      const bs = new Date(b.start_at);
+      const be = new Date(b.end_at);
+      return s < be && f > bs;
+    });
+
+    if (overlap) {
+      const isOwn = currentBarberProfileId && overlap.barber_profile_id === currentBarberProfileId;
+      return {
+        isValid: false,
+        error: isOwn
+          ? "Você já possui uma reserva ativa nesta cadeira neste período."
+          : "Esta cadeira já está reservada no período selecionado.",
+        conflict: true,
+        conflictOwn: !!isOwn,
+      };
+    }
+
+    return { isValid: true, error: "", conflict: false, conflictOwn: false };
+  }, [date, startTime, endTime, bookings, locationHours, currentBarberProfileId]);
+
+  // Calculations for display
+  const hoursCount = useMemo(() => {
+    if (!startTime || !endTime) return 0;
+    const s = buildDate(date, startTime);
+    const f = buildDate(date, endTime);
+    const diffMs = f.getTime() - s.getTime();
+    if (diffMs <= 0) return 0;
+    return diffMs / (1000 * 60 * 60);
+  }, [date, startTime, endTime]);
+
+  const totalPrice = useMemo(() => {
+    return Math.max(0, hoursCount * 12.50);
+  }, [hoursCount]);
+
   async function handleSubmit(ev: React.FormEvent) {
     ev.preventDefault();
     setError("");
 
-    const s = buildDate(date, start);
-    const f = buildDate(date, end);
-
-    if (f <= s) {
-      setError("O horário de fim deve ser maior que o de início.");
+    if (!validation.isValid) {
+      setError(validation.error);
       return;
     }
 
-    const durationMinutes = (f.getTime() - s.getTime()) / 60000;
-    if (durationMinutes < 240) {
-      setError("A reserva precisa ter no mínimo 4 horas de duração.");
-      return;
-    }
-
-    if (hasConflict(s, f)) {
-      setError("Essa cadeira já está reservada nesse horário.");
-      return;
-    }
-
-    const hoursError = validateOperatingHours(s, f);
-    if (hoursError) {
-      setError(hoursError);
-      return;
-    }
+    const s = buildDate(date, startTime);
+    const f = buildDate(date, endTime);
 
     setSaving(true);
 
@@ -251,11 +377,8 @@ export default function ChairBookingForm({
         notes,
       });
 
-      // Fixed price of R$ 50 per booking (MVP)
-      const price = 50.0;
-
       try {
-        await createBookingPayment(booking.id, price, chair.organization_id);
+        await createBookingPayment(booking.id, totalPrice, chair.organization_id);
         toast.success("Reserva criada! Redirecionando para pagamento...");
         onSuccess?.(booking.id);
       } catch (payErr: any) {
@@ -265,9 +388,33 @@ export default function ChairBookingForm({
       }
     } catch (err: any) {
       console.error("Booking creation failed:", err);
-      setError(getFriendlyBookingError(err.message ?? ""));
+      const friendly = getFriendlyBookingError(err.message ?? "");
+      setError(friendly);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleJoinWaitlist() {
+    setJoiningWaitlist(true);
+    setError("");
+    try {
+      const s = buildDate(date, startTime);
+      const f = buildDate(date, endTime);
+
+      await joinWaitlist({
+        chairId: chair.chair_id,
+        organizationId: chair.organization_id,
+        locationId: chair.location_id,
+        desiredStartAt: s.toISOString(),
+        desiredEndAt: f.toISOString(),
+      });
+      toast.success("Você entrou na fila de espera! Avisaremos quando o horário vagar.");
+      onCancel?.();
+    } catch (err: any) {
+      setError(err.message ?? "Erro ao entrar na fila.");
+    } finally {
+      setJoiningWaitlist(false);
     }
   }
 
@@ -276,7 +423,8 @@ export default function ChairBookingForm({
 
   if (loading) {
     return (
-      <div className="p-4 text-center text-sm text-muted-foreground">
+      <div className="p-6 text-center text-sm text-muted-foreground flex flex-col items-center justify-center gap-2">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         Carregando horários...
       </div>
     );
@@ -285,18 +433,21 @@ export default function ChairBookingForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-4 p-4 border rounded-xl bg-card shadow-sm"
+      className="space-y-4 p-5 border rounded-2xl bg-card shadow-sm border-muted/50"
     >
       <div className="space-y-1">
-        <h3 className="font-semibold text-foreground">
+        <h3 className="font-semibold text-foreground flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-amber-500" />
           Reservar {chair.chair_identifier}
         </h3>
         <p className="text-xs text-muted-foreground">{chair.location_name}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase text-muted-foreground">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        {/* Date Selector */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <CalendarIcon className="h-3.5 w-3.5" />
             Data
           </label>
           <Input
@@ -304,71 +455,138 @@ export default function ChairBookingForm({
             value={date}
             min={toDateStr(today)}
             onChange={(e) => setDate(e.target.value)}
+            className="rounded-xl border-muted focus:ring-primary h-10"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase text-muted-foreground">
+
+        {/* Start Time */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
             Início
           </label>
           <Input
             type="time"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            className="rounded-xl border-muted focus:ring-primary h-10"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-bold uppercase text-muted-foreground">
-            Fim
+
+        {/* End Time */}
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+            <Clock className="h-3.5 w-3.5" />
+            Término
           </label>
           <Input
             type="time"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            className="rounded-xl border-muted focus:ring-primary h-10"
           />
         </div>
       </div>
 
       {dayHours && (
-        <p className="text-xs text-muted-foreground">
-          Funcionamento neste dia:{" "}
-          <span className="font-medium text-foreground">{dayHours}</span>
+        <p className="text-xs text-muted-foreground bg-muted/40 p-2 rounded-lg">
+          Funcionamento: <span className="font-semibold text-foreground">{dayHours}</span>
         </p>
       )}
 
+      {/* Busy slots on selected date */}
+      {bookingsOnSelectedDate.length > 0 && (
+        <div className="space-y-1.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 p-3.5 rounded-xl">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-400">
+            Horários ocupados nesta cadeira ({format(selectedDate, "dd/MM")}):
+          </p>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {bookingsOnSelectedDate.map((b) => {
+              const start = new Date(b.start_at);
+              const end = new Date(b.end_at);
+              return (
+                <span
+                  key={b.id}
+                  className="inline-flex items-center gap-1.5 text-xs bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 px-2.5 py-1 rounded-lg border border-amber-200 dark:border-amber-900"
+                >
+                  <Lock className="h-3 w-3" />
+                  {format(start, "HH:mm")} – {format(end, "HH:mm")}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="space-y-1">
-        <label className="text-[10px] font-bold uppercase text-muted-foreground">
+        <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           Observações
         </label>
         <textarea
-          className="w-full border rounded-lg p-3 text-sm min-h-[70px] bg-background resize-none"
+          className="w-full border rounded-xl p-3 text-sm min-h-[70px] bg-background resize-none focus:ring-1 focus:ring-primary outline-none border-muted"
           placeholder="Alguma observação para a reserva?"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
       </div>
 
-      <div className="rounded-lg bg-primary/5 p-3 border border-primary/10 flex justify-between items-center text-sm">
-        <span className="text-muted-foreground">Valor da reserva:</span>
-        <span className="font-bold text-primary">R$ 50,00</span>
-      </div>
-
-      {error && (
-        <div className="rounded-lg bg-destructive/10 p-3 text-destructive text-xs font-medium">
-          {error}
+      {hoursCount > 0 && (
+        <div className="rounded-xl bg-primary/5 p-4 border border-primary/10 flex justify-between items-center text-sm">
+          <span className="text-muted-foreground font-medium">Duração total ({hoursCount.toFixed(1)}h):</span>
+          <span className="font-bold text-primary text-base">R$ {totalPrice.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       )}
 
-      <div className="flex gap-2 pt-1">
-        <Button type="submit" className="flex-1" disabled={saving}>
-          {saving ? "Processando..." : "Confirmar reserva"}
-        </Button>
+      {/* Confict / Warning handling */}
+      {validation.conflict && !validation.conflictOwn && (
+        <div className="rounded-xl bg-amber-50 dark:bg-amber-950/20 p-3.5 border border-amber-200 dark:border-amber-900/40 space-y-2">
+          <div className="flex items-start gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
+            <p>Esta cadeira já possui reserva nesse horário. Deseja entrar na fila de espera?</p>
+          </div>
+          <Button
+            type="button"
+            className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl h-10 text-xs font-semibold shadow-sm"
+            disabled={joiningWaitlist}
+            onClick={handleJoinWaitlist}
+          >
+            {joiningWaitlist ? "Entrando..." : "Entrar na Fila de Espera"}
+          </Button>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl bg-destructive/10 p-3.5 text-destructive text-xs font-semibold flex items-start gap-2 border border-destructive/20">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
+
+      {(!validation.isValid && !validation.conflict && validation.error) && (
+        <div className="rounded-xl bg-muted/60 p-3.5 text-muted-foreground text-xs font-semibold flex items-start gap-2 border border-border">
+          <AlertTriangle className="h-4 w-4 shrink-0 text-muted-foreground/60" />
+          <p>{validation.error}</p>
+        </div>
+      )}
+
+      <div className="flex gap-3 pt-1">
+        {!validation.conflict && (
+          <Button
+            type="submit"
+            className="flex-1 rounded-xl h-11 text-sm font-semibold shadow-sm"
+            disabled={saving || !validation.isValid}
+          >
+            {saving ? "Processando..." : "Confirmar reserva"}
+          </Button>
+        )}
 
         {onCancel && (
           <Button
             type="button"
             variant="outline"
             onClick={onCancel}
-            disabled={saving}
+            disabled={saving || joiningWaitlist}
+            className="rounded-xl h-11 text-sm font-semibold"
           >
             Cancelar
           </Button>
