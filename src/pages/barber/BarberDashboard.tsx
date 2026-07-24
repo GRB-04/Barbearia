@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
 import ReceptionistDashboard from "./ReceptionistDashboard";
@@ -14,9 +14,13 @@ import {
   TrendingUp,
   DollarSign,
   FileText,
+  Timer,
+  CalendarClock,
+  Circle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { startOfMonth, startOfDay, endOfDay } from "date-fns";
+import { startOfMonth, startOfDay, endOfDay, format, isToday, isYesterday } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 type BarberClient = {
   id: string;
@@ -58,6 +62,15 @@ type CachedDashboardData = {
 
 const DASHBOARD_CACHE_KEY = "barber-dashboard-cache-v1";
 
+// UUID / internal reference pattern detector
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+const INTERNAL_REF_REGEX = /^(contract:|booking:|ref:|id:)/i;
+
+function isInternalNote(note: string | null): boolean {
+  if (!note) return false;
+  return UUID_REGEX.test(note.trim()) || INTERNAL_REF_REGEX.test(note.trim());
+}
+
 export default function BarberDashboard() {
   const {
     barberProfile,
@@ -68,7 +81,7 @@ export default function BarberDashboard() {
   } = useBarberProfile();
   const effectiveOrgId = barber?.organization_id || barberProfile?.organization_id;
 
-  // Recepcionistas têm um dashboard próprio — redireciona imediatamente
+  // Recepcionistas tÃªm um dashboard prÃ³prio â€” redireciona imediatamente
   if (isReceptionist) {
     return <ReceptionistDashboard />;
   }
@@ -310,40 +323,72 @@ export default function BarberDashboard() {
     }).length;
   }, [enrichedCheckIns]);
 
-  const formatDateTime = (value: string | null) => {
-    if (!value) return "—";
-
-    return new Date(value).toLocaleString("pt-BR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    });
+  const formatCheckInTime = (value: string | null): string => {
+    if (!value) return "â€”";
+    const d = new Date(value);
+    const timeStr = format(d, "HH:mm", { locale: ptBR });
+    if (isToday(d)) return `Hoje, ${timeStr}`;
+    if (isYesterday(d)) return `Ontem, ${timeStr}`;
+    return format(d, "dd/MM, HH:mm", { locale: ptBR });
   };
 
-  const formatDuration = (checkIn: EnrichedCheckIn) => {
-    if (checkIn.duration_minutes !== null) {
-      return `${checkIn.duration_minutes}min`;
+  const formatDuration = (checkIn: EnrichedCheckIn): string => {
+    if (checkIn.duration_minutes !== null && checkIn.duration_minutes > 0) {
+      const h = Math.floor(checkIn.duration_minutes / 60);
+      const m = checkIn.duration_minutes % 60;
+      if (h > 0 && m > 0) return `${h}h ${m}min`;
+      if (h > 0) return `${h}h`;
+      return `${m}min`;
     }
 
     if (checkIn.started_at && checkIn.finished_at) {
       const start = new Date(checkIn.started_at).getTime();
       const end = new Date(checkIn.finished_at).getTime();
       const totalMinutes = Math.max(0, Math.floor((end - start) / 60000));
-      return `${totalMinutes}min`;
+      if (totalMinutes === 0) return "< 1min";
+      const h = Math.floor(totalMinutes / 60);
+      const m = totalMinutes % 60;
+      if (h > 0 && m > 0) return `${h}h ${m}min`;
+      if (h > 0) return `${h}h`;
+      return `${m}min`;
     }
 
-    return "—";
+    return null as unknown as string;
   };
 
-  const getStatusLabel = (checkIn: EnrichedCheckIn) => {
-    if (checkIn.finished_at) return "Finalizado";
-    if (checkIn.started_at && !checkIn.finished_at) return "Em atendimento";
-    return "Aguardando";
+  type StatusInfo = {
+    label: string;
+    dotClass: string;
+    textClass: string;
   };
 
-  const getStatusVariant = (checkIn: EnrichedCheckIn) => {
-    if (checkIn.finished_at) return "default";
-    if (checkIn.started_at && !checkIn.finished_at) return "secondary";
-    return "outline";
+  const getStatusInfo = (checkIn: EnrichedCheckIn): StatusInfo => {
+    if (checkIn.finished_at) {
+      return {
+        label: "Finalizado",
+        dotClass: "bg-emerald-500",
+        textClass: "text-emerald-600 dark:text-emerald-400",
+      };
+    }
+    if (checkIn.started_at && !checkIn.finished_at) {
+      return {
+        label: "Em atendimento",
+        dotClass: "bg-amber-400 animate-pulse",
+        textClass: "text-amber-600 dark:text-amber-400",
+      };
+    }
+    return {
+      label: "Aguardando",
+      dotClass: "bg-muted-foreground/30",
+      textClass: "text-muted-foreground",
+    };
+  };
+
+  // Get initials for avatar
+  const getInitials = (name: string): string => {
+    const parts = name.trim().split(" ");
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
   };
 
   if (barberLoading || loading) {
@@ -352,7 +397,7 @@ export default function BarberDashboard() {
         <div>
           <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Carregando visão geral da operação...
+            Carregando visÃ£o geral da operaÃ§Ã£o...
           </p>
         </div>
       </div>
@@ -365,7 +410,7 @@ export default function BarberDashboard() {
         <div>
           <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
           <p className="text-sm text-muted-foreground">
-            Perfil não encontrado.
+            Perfil nÃ£o encontrado.
           </p>
         </div>
       </div>
@@ -386,9 +431,9 @@ export default function BarberDashboard() {
               )}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-foreground">Olá, {barberProfile.full_name}!</h1>
+              <h1 className="text-2xl font-bold text-foreground">OlÃ¡, {barberProfile.full_name}!</h1>
               <p className="text-sm text-muted-foreground">
-                Seja bem-vindo ao BarberHouse Connect. Você ainda não está vinculado a nenhuma equipe.
+                Seja bem-vindo ao BarberHouse Connect. VocÃª ainda nÃ£o estÃ¡ vinculado a nenhuma equipe.
               </p>
             </div>
           </div>
@@ -401,7 +446,7 @@ export default function BarberDashboard() {
               <div className="space-y-1">
                 <h3 className="font-semibold text-lg">Comece a trabalhar hoje</h3>
                 <p className="text-sm text-muted-foreground">
-                  Explore cadeiras disponíveis em barbearias próximas e faça sua reserva por período.
+                  Explore cadeiras disponÃ­veis em barbearias prÃ³ximas e faÃ§a sua reserva por perÃ­odo.
                 </p>
               </div>
               <Button asChild className="rounded-xl px-8">
@@ -412,7 +457,7 @@ export default function BarberDashboard() {
 
           <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800">
             <p>
-              <strong>Dica:</strong> Se você foi convidado por uma barbearia específica, peça o <strong>link de convite</strong> para vincular sua conta automaticamente à equipe deles.
+              <strong>Dica:</strong> Se vocÃª foi convidado por uma barbearia especÃ­fica, peÃ§a o <strong>link de convite</strong> para vincular sua conta automaticamente Ã  equipe deles.
             </p>
           </div>
         </div>
@@ -432,9 +477,9 @@ export default function BarberDashboard() {
             )}
           </div>
           <div className="space-y-0.5">
-            <h1 className="text-lg font-semibold text-foreground">Olá, {barber.full_name}!</h1>
+            <h1 className="text-lg font-semibold text-foreground">OlÃ¡, {barber.full_name}!</h1>
             <p className="text-xs text-muted-foreground">
-              Visão geral da sua operação — {isReceptionist ? "Recepcionista" : barberProfile.role === "manager" ? "Gerente" : "Barbeiro"}
+              VisÃ£o geral da sua operaÃ§Ã£o â€” {isReceptionist ? "Recepcionista" : barberProfile.role === "manager" ? "Gerente" : "Barbeiro"}
             </p>
           </div>
         </div>
@@ -538,7 +583,7 @@ export default function BarberDashboard() {
                 <TrendingUp className="h-5 w-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">Ganhos do mês</p>
+                <p className="text-sm text-muted-foreground">Ganhos do mÃªs</p>
                 <p className="text-2xl font-bold text-blue-600">
                   {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(monthEarnings)}
                 </p>
@@ -596,75 +641,88 @@ export default function BarberDashboard() {
         </div>
       )}
 
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">
-          Atendimentos recentes
-        </h2>
+      {/* â”€â”€â”€ ATENDIMENTOS RECENTES â€” Lista compacta â”€â”€â”€ */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold tracking-tight text-foreground">
+            Atendimentos Recentes
+          </h2>
+          {enrichedCheckIns.length > 0 && (
+            <span className="text-xs text-muted-foreground font-medium">
+              Ãšltimos {enrichedCheckIns.length} registros
+            </span>
+          )}
+        </div>
 
         {enrichedCheckIns.length === 0 ? (
-          <Card className="rounded-2xl shadow-sm">
-            <CardContent className="p-10 text-center">
-              <p className="text-base font-medium text-foreground">
-                Nenhum atendimento ainda.
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Quando você registrar check-ins, eles aparecerão aqui.
-              </p>
+          <Card className="rounded-2xl shadow-sm border-dashed">
+            <CardContent className="py-12 flex flex-col items-center justify-center gap-3 text-center">
+              <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center">
+                <CalendarClock className="h-6 w-6 text-muted-foreground/50" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-foreground">Nenhum atendimento ainda</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  Quando vocÃª registrar check-ins de clientes, eles aparecerÃ£o aqui.
+                </p>
+              </div>
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4">
-            {enrichedCheckIns.map((checkIn) => (
-              <Card key={checkIn.id} className="rounded-2xl shadow-sm">
-                <CardContent className="space-y-4 p-5">
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div className="space-y-1">
-                      <p className="text-base font-semibold text-foreground">
+          <Card className="rounded-2xl shadow-sm overflow-hidden">
+            <div className="divide-y divide-border">
+              {enrichedCheckIns.map((checkIn, idx) => {
+                const status = getStatusInfo(checkIn);
+                const duration = formatDuration(checkIn);
+                const checkinTime = formatCheckInTime(checkIn.checked_in_at ?? checkIn.created_at);
+                const initials = getInitials(checkIn.clientName);
+                const visibleNote = !isInternalNote(checkIn.notes) ? checkIn.notes : null;
+
+                return (
+                  <div
+                    key={checkIn.id}
+                    className="flex items-center gap-4 px-5 py-4 hover:bg-muted/30 transition-colors"
+                  >
+                    {/* Avatar com iniciais */}
+                    <div className="shrink-0 w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm select-none">
+                      {initials}
+                    </div>
+
+                    {/* Nome + nota (se houver) */}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">
                         {checkIn.clientName}
                       </p>
-                      <p className="text-sm text-muted-foreground">
-                        Check-in em {formatDateTime(checkIn.checked_in_at ?? checkIn.created_at)}
-                      </p>
+                      {visibleNote ? (
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{visibleNote}</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <CalendarClock className="h-3 w-3 shrink-0" />
+                          {checkinTime}
+                        </p>
+                      )}
                     </div>
 
-                    <Badge variant={getStatusVariant(checkIn)}>
-                      {getStatusLabel(checkIn)}
-                    </Badge>
-                  </div>
+                    {/* DuraÃ§Ã£o */}
+                    {duration && (
+                      <div className="shrink-0 flex items-center gap-1 text-xs font-medium text-muted-foreground bg-muted rounded-lg px-2 py-1">
+                        <Timer className="h-3 w-3" />
+                        {duration}
+                      </div>
+                    )}
 
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded-xl border border-border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Início</p>
-                      <p className="mt-1 text-sm font-medium">
-                        {formatDateTime(checkIn.started_at)}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Fim</p>
-                      <p className="mt-1 text-sm font-medium">
-                        {formatDateTime(checkIn.finished_at)}
-                      </p>
-                    </div>
-
-                    <div className="rounded-xl border border-border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Duração</p>
-                      <p className="mt-1 text-sm font-medium">
-                        {formatDuration(checkIn)}
-                      </p>
+                    {/* Status indicator */}
+                    <div className="shrink-0 flex items-center gap-1.5 min-w-[100px] justify-end">
+                      <span className={`inline-block w-2 h-2 rounded-full ${status.dotClass}`} />
+                      <span className={`text-xs font-semibold ${status.textClass}`}>
+                        {status.label}
+                      </span>
                     </div>
                   </div>
-
-                  {checkIn.notes && (
-                    <div className="rounded-xl border border-border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">Observações</p>
-                      <p className="mt-1 text-sm font-medium">{checkIn.notes}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                );
+              })}
+            </div>
+          </Card>
         )}
       </div>
     </div>

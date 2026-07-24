@@ -9,7 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, UserPlus, Star } from "lucide-react";
+import {
+  Plus,
+  UserPlus,
+  Star,
+  Clock,
+  CheckCircle2,
+  Scissors,
+  Play,
+  Check,
+  QrCode,
+  RefreshCw,
+  User,
+  Sparkles,
+  Calendar,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -66,27 +80,20 @@ type EnrichedCheckIn = CheckInRow & {
   clientName: string;
 };
 
+function formatTime(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function formatDateTime(value: string | null): string {
   if (!value) return "—";
-
   return new Date(value).toLocaleString("pt-BR", {
     dateStyle: "short",
     timeStyle: "short",
   });
-}
-
-function getStatusLabel(checkIn: EnrichedCheckIn): string {
-  if (checkIn.finished_at) return "Finalizado";
-  if (checkIn.started_at && !checkIn.finished_at) return "Em atendimento";
-  return "Aguardando";
-}
-
-function getStatusVariant(
-  checkIn: EnrichedCheckIn
-): "default" | "secondary" | "outline" {
-  if (checkIn.finished_at) return "default";
-  if (checkIn.started_at && !checkIn.finished_at) return "secondary";
-  return "outline";
 }
 
 function calculateDurationMinutes(
@@ -97,316 +104,263 @@ function calculateDurationMinutes(
 
   const start = new Date(startedAt).getTime();
   const end = new Date(finishedAt).getTime();
+  const diffMs = end - start;
 
-  if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
-    return null;
-  }
-
-  const diffMinutes = Math.floor((end - start) / 60000);
-  return Math.max(1, diffMinutes);
+  if (diffMs <= 0) return 0;
+  return Math.round(diffMs / (1000 * 60));
 }
 
 export default function CheckInPage() {
-  const { barberProfile, barber, isReceptionist, loading: barberLoading } = useBarberProfile();
-  const effectiveOrgId = barber?.organization_id || barberProfile?.organization_id;
+  const { barberProfile, loading: barberLoading, isReceptionist } = useBarberProfile();
 
-  const [clients, setClients] = useState<BarberClient[]>([]);
   const [contracts, setContracts] = useState<CurrentActiveContract[]>([]);
   const [bookings, setBookings] = useState<ActiveBooking[]>([]);
+  const [clients, setClients] = useState<BarberClient[]>([]);
   const [checkIns, setCheckIns] = useState<CheckInRow[]>([]);
-
-  // State for Receptionist
   const [barbersList, setBarbersList] = useState<{ id: string; full_name: string }[]>([]);
-  const [selectedBarberId, setSelectedBarberId] = useState("");
-  const [selectedBarberContracts, setSelectedBarberContracts] = useState<any[]>([]);
-  const [selectedBarberBookings, setSelectedBarberBookings] = useState<any[]>([]);
 
-  const [selectedClientId, setSelectedClientId] = useState("");
-  const [notes, setNotes] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [selectedBarberId, setSelectedBarberId] = useState<string>("");
+  const [selectedBarberContracts, setSelectedBarberContracts] = useState<CurrentActiveContract[]>([]);
+  const [selectedBarberBookings, setSelectedBarberBookings] = useState<ActiveBooking[]>([]);
 
-  const [loading, setLoading] = useState(true);
-  const [savingCheckIn, setSavingCheckIn] = useState(false);
+  const [notes, setNotes] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [savingCheckIn, setSavingCheckIn] = useState<boolean>(false);
   const [startingId, setStartingId] = useState<string | null>(null);
-  const [finishingId, setFinishingId] = useState<string | null>(null);
 
-  // Finish modal state
-  const [finishTarget, setFinishTarget] = useState<EnrichedCheckIn | null>(null);
-  const [serviceAmount, setServiceAmount] = useState("");
-  const [rating, setRating] = useState(0);
-  const [hoverRating, setHoverRating] = useState(0);
-  const [ratingComment, setRatingComment] = useState("");
-  const [submittingFinish, setSubmittingFinish] = useState(false);
-
+  // Filter State: "all" | "service" | "qr_gate"
+  const [activeFilter, setActiveFilter] = useState<"all" | "service" | "qr_gate">("all");
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [newClientName, setNewClientName] = useState("");
   const [newClientPhone, setNewClientPhone] = useState("");
   const [creatingClient, setCreatingClient] = useState(false);
 
-  async function loadData() {
-    if (!barberProfile || !barber) {
-      setLoading(false);
-      return;
-    }
+  // Finish Attendance Modal State
+  const [finishTarget, setFinishTarget] = useState<EnrichedCheckIn | null>(null);
+  const [serviceAmount, setServiceAmount] = useState<string>("");
+  const [rating, setRating] = useState<number>(0);
+  const [ratingComment, setRatingComment] = useState<string>("");
+  const [submittingFinish, setSubmittingFinish] = useState<boolean>(false);
+  const [finishingId, setFinishingId] = useState<string | null>(null);
 
+  // Toggle for New Check-In Form
+  const [newCheckInOpen, setNewCheckInOpen] = useState<boolean>(false);
+
+  const barber = barberProfile;
+
+  const loadData = async () => {
+    if (!barberProfile?.id) return;
     setLoading(true);
 
     try {
-      const nowIso = new Date().toISOString();
-      const isRecep = isReceptionist;
-      const orgId = effectiveOrgId;
-
-      const [clientsResult, contractsResult, bookingsResult, checkInsResult, rosterResult] =
-        await Promise.all([
-          isRecep
-            ? supabase
-                .from("barber_clients")
-                .select("id, full_name, created_at")
-                .eq("organization_id", orgId)
-                .order("full_name", { ascending: true })
-            : supabase
-                .from("barber_clients")
-                .select("id, full_name, created_at")
-                .eq("barber_profile_id", barberProfile.id)
-                .order("full_name", { ascending: true }),
-
-          isRecep
-            ? Promise.resolve({ data: [], error: null })
-            : getMyCurrentActiveContracts(),
-
-          isRecep
-            ? Promise.resolve({ data: [], error: null })
-            : supabase
-                .from("chair_bookings")
-                .select(
-                  "id, chair_id, organization_id, start_at, end_at, status, created_at"
-                )
-                .eq("barber_profile_id", barberProfile.id)
-                .in("status", ["pending", "confirmed"])
-                .lte("start_at", nowIso)
-                .gte("end_at", nowIso)
-                .order("start_at", { ascending: false }),
-
-          isRecep
-            ? supabase
-                .from("check_ins")
-                .select(
-                  "id, client_id, organization_id, contract_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at, barber_profile_id"
-                )
-                .eq("organization_id", orgId)
-                .order("created_at", { ascending: false })
-                .limit(20)
-            : supabase
-                .from("check_ins")
-                .select(
-                  "id, client_id, organization_id, contract_id, status, checked_in_at, started_at, finished_at, duration_minutes, notes, created_at, barber_profile_id"
-                )
-                .eq("barber_profile_id", barberProfile.id)
-                .order("created_at", { ascending: false })
-                .limit(20),
-
-          isRecep
-            ? supabase
-                .from("organization_barbers")
-                .select("barber_profile_id, full_name")
-                .eq("organization_id", orgId)
-                .not("barber_profile_id", "is", null)
-            : Promise.resolve({ data: [], error: null })
-        ]);
-
-      if (clientsResult.error) {
-        throw new Error(
-          clientsResult.error.message || "Erro ao carregar clientes."
+      if (!isReceptionist) {
+        const activeRes = await getMyCurrentActiveContracts(barberProfile.id);
+        setContracts(
+          activeRes.map((c) => ({
+            id: c.id,
+            status: c.status,
+            chair_id: c.chair_id,
+            organization_id: c.organization_id,
+            created_at: c.created_at,
+          }))
         );
+
+        const nowIso = new Date().toISOString();
+        const { data: bData } = await supabase
+          .from("chair_bookings")
+          .select("id, chair_id, organization_id, start_at, end_at, status, created_at")
+          .eq("barber_profile_id", barberProfile.id)
+          .eq("status", "confirmed")
+          .lte("start_at", nowIso)
+          .gte("end_at", nowIso);
+
+        setBookings(bData ?? []);
+      } else {
+        const { data: bList } = await supabase
+          .from("barber_profiles")
+          .select("id, full_name")
+          .order("full_name");
+        setBarbersList(bList ?? []);
       }
 
-      if (bookingsResult.error) {
-        throw new Error(
-          bookingsResult.error.message || "Erro ao carregar bookings."
-        );
+      // Fetch Clients
+      let clientQuery = supabase
+        .from("barber_clients")
+        .select("id, full_name, created_at")
+        .order("full_name");
+
+      if (!isReceptionist) {
+        clientQuery = clientQuery.eq("barber_profile_id", barberProfile.id);
       }
 
-      if (checkInsResult.error) {
-        throw new Error(
-          checkInsResult.error.message || "Erro ao carregar check-ins."
-        );
+      const { data: clientData } = await clientQuery;
+      setClients(clientData ?? []);
+
+      // Fetch Check-Ins
+      let checkInQuery = supabase
+        .from("check_ins")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (!isReceptionist) {
+        checkInQuery = checkInQuery.eq("barber_profile_id", barberProfile.id);
       }
 
-      if (rosterResult.error) {
-        throw new Error(
-          rosterResult.error.message || "Erro ao carregar barbeiros da equipe."
-        );
-      }
-
-      const normalizedContracts: CurrentActiveContract[] = (
-        contractsResult.data ?? contractsResult ?? []
-      ).map((contract: any) => ({
-        id: contract.id,
-        status: contract.status,
-        chair_id: contract.chair_id,
-        organization_id: contract.organization_id,
-        created_at: contract.created_at,
-      }));
-
-      type RosterRow = {
-        barber_profile_id: string | null;
-        full_name: string | null;
-      };
-
-      const filteredBarbers = ((rosterResult.data ?? []) as unknown as RosterRow[])
-        .filter(b => b.barber_profile_id)
-        .map(b => ({
-          id: b.barber_profile_id!,
-          full_name: b.full_name
-        }));
-
-      setBarbersList(filteredBarbers);
-      setClients((clientsResult.data as BarberClient[]) ?? []);
-      setContracts(normalizedContracts);
-      setBookings((bookingsResult.data as ActiveBooking[]) ?? []);
-      setCheckIns((checkInsResult.data as CheckInRow[]) ?? []);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Erro ao carregar dados do check-in.";
-      toast.error(message);
+      const { data: checkInData } = await checkInQuery;
+      setCheckIns(checkInData ?? []);
+    } catch {
+      toast.error("Erro ao carregar dados do check-in.");
     } finally {
       setLoading(false);
     }
-  }
-
-  async function handleQuickCreateClient() {
-    if (!barberProfile?.id || !effectiveOrgId) return;
-    if (!newClientName.trim()) {
-      toast.error("Informe o nome do cliente.");
-      return;
-    }
-
-    setCreatingClient(true);
-    try {
-      const { data, error } = await supabase
-        .from("barber_clients")
-        .insert({
-          organization_id: effectiveOrgId,
-          barber_profile_id: barberProfile.id,
-          full_name: newClientName.trim(),
-          phone: newClientPhone.trim() || null,
-        } as Record<string, unknown>)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      toast.success("Cliente cadastrado com sucesso.");
-      setQuickCreateOpen(false);
-      setNewClientName("");
-      setNewClientPhone("");
-      
-      // Auto-select the new client
-      const newClient = data as BarberClient;
-      setSelectedClientId(newClient.id);
-      clearDashboardCache();
-      await loadData();
-    } catch (error) {
-      toast.error("Erro ao cadastrar cliente.");
-    } finally {
-      setCreatingClient(false);
-    }
-  }
+  };
 
   useEffect(() => {
-    if (!barberProfile?.id || !effectiveOrgId) return;
     void loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [barberProfile?.id, effectiveOrgId]);
+  }, [barberProfile?.id, isReceptionist]);
 
+  // Load contracts/bookings for selected barber when receptionist selects one
   useEffect(() => {
-    if (!selectedBarberId) {
+    if (!isReceptionist || !selectedBarberId) {
       setSelectedBarberContracts([]);
       setSelectedBarberBookings([]);
       return;
     }
 
-    async function fetchBarberStatus() {
+    void (async () => {
+      const activeRes = await getMyCurrentActiveContracts(selectedBarberId);
+      setSelectedBarberContracts(
+        activeRes.map((c) => ({
+          id: c.id,
+          status: c.status,
+          chair_id: c.chair_id,
+          organization_id: c.organization_id,
+          created_at: c.created_at,
+        }))
+      );
+
       const nowIso = new Date().toISOString();
-      const [contractsRes, bookingsRes] = await Promise.all([
-        supabase
-          .from("contracts")
-          .select("id, status, organization_id, chair_id")
-          .eq("barber_profile_id", selectedBarberId)
-          .eq("status", "active"),
-        supabase
-          .from("chair_bookings")
-          .select("id, status, organization_id, chair_id")
-          .eq("barber_profile_id", selectedBarberId)
-          .in("status", ["pending", "confirmed"])
-          .lte("start_at", nowIso)
-          .gte("end_at", nowIso)
-      ]);
+      const { data: bData } = await supabase
+        .from("chair_bookings")
+        .select("id, chair_id, organization_id, start_at, end_at, status, created_at")
+        .eq("barber_profile_id", selectedBarberId)
+        .eq("status", "confirmed")
+        .lte("start_at", nowIso)
+        .gte("end_at", nowIso);
 
-      setSelectedBarberContracts(contractsRes.data ?? []);
-      setSelectedBarberBookings(bookingsRes.data ?? []);
-    }
-
-    void fetchBarberStatus();
-  }, [selectedBarberId]);
-
-  const barberMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const b of barbersList) {
-      map.set(b.id, b.full_name);
-    }
-    return map;
-  }, [barbersList]);
-
-  const getBarberNameOfCheckIn = (checkIn: EnrichedCheckIn) => {
-    if (!checkIn.barber_profile_id) return "—";
-    if (checkIn.barber_profile_id === barberProfile?.id) return barber?.full_name ?? "Você";
-    return barberMap.get(checkIn.barber_profile_id) ?? "Outro Barbeiro";
-  };
+      setSelectedBarberBookings(bData ?? []);
+    })();
+  }, [isReceptionist, selectedBarberId]);
 
   const clientMap = useMemo(() => {
-    const map = new Map<string, BarberClient>();
-
-    for (const client of clients) {
-      map.set(client.id, client);
-    }
-
+    const map = new Map<string, string>();
+    clients.forEach((c) => map.set(c.id, c.full_name));
     return map;
   }, [clients]);
 
+  const barbersMap = useMemo(() => {
+    const map = new Map<string, string>();
+    barbersList.forEach((b) => map.set(b.id, b.full_name));
+    return map;
+  }, [barbersList]);
+
   const enrichedCheckIns = useMemo<EnrichedCheckIn[]>(() => {
-    return checkIns.map((checkIn) => ({
-      ...checkIn,
-      clientName: clientMap.get(checkIn.client_id)?.full_name ?? "Cliente",
+    return checkIns.map((item) => ({
+      ...item,
+      clientName: clientMap.get(item.client_id) ?? "Cliente cadastrado",
     }));
   }, [checkIns, clientMap]);
 
-  const activeContractsCount = contracts.length;
-  const activeBookingsCount = bookings.length;
+  const allCount = enrichedCheckIns.length;
+  const serviceCount = useMemo(
+    () => enrichedCheckIns.filter((c) => !c.notes?.includes("Crachá Digital") && !c.notes?.includes("QR Code")).length,
+    [enrichedCheckIns]
+  );
+  const qrGateCount = useMemo(
+    () => enrichedCheckIns.filter((c) => c.notes?.includes("Crachá Digital") || c.notes?.includes("QR Code")).length,
+    [enrichedCheckIns]
+  );
 
-  const hasActiveContract = activeContractsCount > 0;
-  const hasActiveBooking = activeBookingsCount > 0;
+  const filteredCheckIns = useMemo(() => {
+    return enrichedCheckIns.filter((checkIn) => {
+      const isQr = checkIn.notes?.includes("Crachá Digital") || checkIn.notes?.includes("QR Code");
+      if (activeFilter === "service") return !isQr;
+      if (activeFilter === "qr_gate") return isQr;
+      return true;
+    });
+  }, [enrichedCheckIns, activeFilter]);
 
-  const hasValidAccess = isReceptionist
-    ? (selectedBarberContracts.length > 0 || selectedBarberBookings.length > 0)
-    : (activeContractsCount > 0 || hasActiveBooking);
+  function getBarberNameOfCheckIn(checkIn: CheckInRow): string {
+    if (checkIn.barber_profile_id && barbersMap.has(checkIn.barber_profile_id)) {
+      return barbersMap.get(checkIn.barber_profile_id)!;
+    }
+    return barberProfile?.full_name ?? "Barbeiro";
+  }
+
+  const hasActiveContract = contracts.length > 0;
+  const hasActiveBooking = bookings.length > 0;
+  const hasValidAccess = hasActiveContract || hasActiveBooking;
 
   const accessLabel = useMemo(() => {
     if (hasActiveContract && hasActiveBooking) {
-      return "Contrato e booking ativos agora";
+      return "Contrato e Booking ativos";
     }
-
     if (hasActiveContract) {
       return "Contrato ativo agora";
     }
-
     if (hasActiveBooking) {
       return "Booking ativo agora";
     }
-
     return "Sem vínculo válido no momento";
   }, [hasActiveContract, hasActiveBooking]);
+
+  const effectiveOrgId = useMemo(() => {
+    if (barberProfile?.organization_id) return barberProfile.organization_id;
+    if (contracts[0]?.organization_id) return contracts[0].organization_id;
+    if (bookings[0]?.organization_id) return bookings[0].organization_id;
+    if (checkIns[0]?.organization_id) return checkIns[0].organization_id;
+    return null;
+  }, [barberProfile, contracts, bookings, checkIns]);
+
+  async function handleQuickCreateClient() {
+    if (!newClientName.trim()) {
+      toast.error("Informe o nome do cliente.");
+      return;
+    }
+
+    if (!barberProfile?.id) return;
+    setCreatingClient(true);
+
+    try {
+      const { data, error } = await supabase
+        .from("barber_clients")
+        .insert({
+          barber_profile_id: barberProfile.id,
+          organization_id: effectiveOrgId,
+          full_name: newClientName.trim(),
+          phone: newClientPhone.trim() || null,
+        })
+        .select("id, full_name, created_at")
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      toast.success(`Cliente ${data.full_name} cadastrado com sucesso!`);
+      setClients((prev) => [data, ...prev]);
+      setSelectedClientId(data.id);
+      setNewClientName("");
+      setNewClientPhone("");
+      setQuickCreateOpen(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro ao cadastrar cliente.";
+      toast.error(msg);
+    } finally {
+      setCreatingClient(false);
+    }
+  }
 
   async function handleCreateCheckIn() {
     if (!barberProfile?.id) {
@@ -484,6 +438,7 @@ export default function CheckInPage() {
       toast.success("Check-in registrado com sucesso.");
       setSelectedClientId("");
       setNotes("");
+      setNewCheckInOpen(false);
       clearDashboardCache();
       await loadData();
     } catch (error) {
@@ -511,7 +466,7 @@ export default function CheckInPage() {
         throw new Error(error.message || "Erro ao iniciar atendimento.");
       }
 
-      toast.success("Atendimento iniciado.");
+      toast.success("Atendimento iniciado com sucesso.");
       clearDashboardCache();
       await loadData();
     } catch (error) {
@@ -524,7 +479,6 @@ export default function CheckInPage() {
   }
 
   async function handleFinishAttendance(checkIn: EnrichedCheckIn) {
-    // Open modal instead of directly finishing
     setFinishTarget(checkIn);
     setServiceAmount("");
     setRating(0);
@@ -540,7 +494,6 @@ export default function CheckInPage() {
     const durationMinutes = calculateDurationMinutes(checkIn.started_at, finishedAt);
     const svcAmount = parseFloat(serviceAmount) || 0;
 
-    // Fetch contract commission rate
     let commissionAmount = 0;
     if (checkIn.contract_id) {
       const { data: contractData } = await supabase
@@ -572,7 +525,6 @@ export default function CheckInPage() {
 
       if (error) throw new Error(error.message || "Erro ao finalizar atendimento.");
 
-      // Save rating if given
       if (rating > 0 && barberProfile?.id && effectiveOrgId) {
         await supabase.from("barber_ratings").insert({
           organization_id: effectiveOrgId,
@@ -583,7 +535,6 @@ export default function CheckInPage() {
         } as Record<string, unknown>);
       }
 
-      // Audit log
       if (effectiveOrgId) {
         await supabase.from("audit_logs").insert({
           organization_id: effectiveOrgId,
@@ -610,11 +561,11 @@ export default function CheckInPage() {
   if (barberLoading || loading) {
     return (
       <div className="space-y-6 p-6">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Check-in</h1>
-          <p className="text-sm text-muted-foreground">
-            Carregando operação de atendimento...
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">Check-in</h1>
+            <p className="text-sm text-muted-foreground">Carregando operação de atendimento...</p>
+          </div>
         </div>
       </div>
     );
@@ -624,407 +575,494 @@ export default function CheckInPage() {
     return (
       <div className="space-y-6 p-6">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Check-in</h1>
-          <p className="text-sm text-muted-foreground">
-            Perfil operacional não encontrado.
-          </p>
+          <h1 className="text-xl font-bold tracking-tight text-foreground">Check-in</h1>
+          <p className="text-sm text-muted-foreground">Perfil operacional não encontrado.</p>
         </div>
       </div>
     );
   }
 
+  const waitingCount = enrichedCheckIns.filter((c) => !c.started_at && !c.finished_at).length;
+  const inProgressCount = enrichedCheckIns.filter((c) => !!c.started_at && !c.finished_at).length;
+  const finishedCount = enrichedCheckIns.filter((c) => !!c.finished_at).length;
+
   return (
     <>
-    <div className="space-y-6 p-6">
-      <div className="space-y-1">
-        <h1 className="text-lg font-semibold text-foreground">Check-in</h1>
-        <p className="text-sm text-muted-foreground">
-          Registre chegada do cliente e controle o início e o fim do atendimento.
-        </p>
-        <p className="text-sm text-muted-foreground">
-          Perfil operacional: <span className="font-medium">{barber.full_name}</span>
-        </p>
-      </div>
-
-      {isReceptionist ? (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm">Contratos ativos na casa</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{checkIns.filter(c => c.status === 'in_progress').length}</p>
-              <p className="text-xs text-muted-foreground">Barbeiros em atendimento agora</p>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm">Fila de espera</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{checkIns.filter(c => c.status === 'checked_in').length}</p>
-              <p className="text-xs text-muted-foreground">Clientes aguardando atendimento</p>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm">Finalizados hoje</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">
-                {checkIns.filter(c => c.status === 'finished' || c.finished_at !== null).length}
-              </p>
-              <p className="text-xs text-muted-foreground">Atendimentos concluídos hoje</p>
-            </CardContent>
-          </Card>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm">Contratos válidos agora</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{activeContractsCount}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm">Bookings ativos agora</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-3xl font-bold">{activeBookingsCount}</p>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-2xl shadow-sm">
-            <CardHeader>
-              <CardTitle className="text-sm">Acesso para check-in</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Badge variant={hasValidAccess ? "default" : "outline"}>
-                {accessLabel}
-              </Badge>
-              <p className="text-sm text-muted-foreground">
-                Regra de acesso: contrato válido agora ou booking ativo agora.
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      <Card className="rounded-2xl shadow-sm">
-        <CardHeader>
-          <CardTitle>Novo check-in</CardTitle>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium">Cliente</label>
-              <Dialog open={quickCreateOpen} onOpenChange={setQuickCreateOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-xs">
-                    <UserPlus className="h-3.5 w-3.5" />
-                    Novo cliente
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Cadastro rápido de cliente</DialogTitle>
-                  </DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <div className="space-y-2">
-                      <Label>Nome completo</Label>
-                      <Input 
-                        value={newClientName} 
-                        onChange={(e) => setNewClientName(e.target.value)} 
-                        placeholder="Nome do cliente"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Telefone (opcional)</Label>
-                      <Input 
-                        value={newClientPhone} 
-                        onChange={(e) => setNewClientPhone(e.target.value)} 
-                        placeholder="(91) 99999-9999"
-                      />
-                    </div>
-                    <Button 
-                      className="w-full" 
-                      onClick={handleQuickCreateClient}
-                      disabled={creatingClient}
-                    >
-                      {creatingClient ? "Cadastrando..." : "Cadastrar e selecionar"}
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            </div>
-            <select
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              value={selectedClientId}
-              onChange={(e) => setSelectedClientId(e.target.value)}
-            >
-              <option value="">Selecione um cliente</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.full_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {isReceptionist && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Barbeiro / Cadeira</label>
-              <select
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={selectedBarberId}
-                onChange={(e) => setSelectedBarberId(e.target.value)}
-              >
-                <option value="">Selecione um barbeiro</option>
-                {barbersList.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.full_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Observações</label>
-            <textarea
-              className="min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-              placeholder="Opcional"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
-
-          {!isReceptionist && !hasValidAccess ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              Você não pode registrar check-in agora porque não há contrato válido
-              agora nem booking ativo.
-            </div>
-          ) : null}
-
-          {isReceptionist && selectedBarberId && (selectedBarberContracts.length === 0 && selectedBarberBookings.length === 0) ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              O barbeiro selecionado não possui contrato ativo ou booking ativo no momento.
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap gap-3">
-            <Button
-              type="button"
-              onClick={handleCreateCheckIn}
-              disabled={savingCheckIn || (!isReceptionist && !hasValidAccess) || (isReceptionist && (!selectedBarberId || (selectedBarberContracts.length === 0 && selectedBarberBookings.length === 0))) || !selectedClientId}
-            >
-              {savingCheckIn ? "Registrando..." : "Registrar check-in"}
-            </Button>
-
-            <Button type="button" variant="outline" onClick={() => void loadData()}>
-              Atualizar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">
-          Atendimentos recentes
-        </h2>
-
-        {enrichedCheckIns.length === 0 ? (
-          <Card className="rounded-2xl shadow-sm">
-            <CardContent className="p-10 text-center">
-              <p className="text-base font-medium text-foreground">
-                Nenhum check-in ainda.
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Quando você registrar check-ins, eles aparecerão aqui.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-4">
-            {enrichedCheckIns.map((checkIn) => {
-              const canStart = !checkIn.started_at && !checkIn.finished_at;
-              const canFinish = !!checkIn.started_at && !checkIn.finished_at;
-
-              return (
-                <Card key={checkIn.id} className="rounded-2xl shadow-sm">
-                  <CardContent className="space-y-4 p-5">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div className="space-y-1">
-                        <p className="text-base font-semibold text-foreground">
-                          {checkIn.clientName}
-                        </p>
-                        {isReceptionist && (
-                          <p className="text-xs text-muted-foreground">
-                            Barbeiro: <span className="font-medium text-foreground">{getBarberNameOfCheckIn(checkIn)}</span>
-                          </p>
-                        )}
-                        <p className="text-sm text-muted-foreground">
-                          Check-in em{" "}
-                          {formatDateTime(checkIn.checked_in_at ?? checkIn.created_at)}
-                        </p>
-                      </div>
-
-                      <Badge variant={getStatusVariant(checkIn)}>
-                        {getStatusLabel(checkIn)}
-                      </Badge>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <div className="rounded-xl border border-border bg-muted/30 p-3">
-                        <p className="text-xs text-muted-foreground">Início</p>
-                        <p className="mt-1 text-sm font-medium">
-                          {formatDateTime(checkIn.started_at)}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-border bg-muted/30 p-3">
-                        <p className="text-xs text-muted-foreground">Fim</p>
-                        <p className="mt-1 text-sm font-medium">
-                          {formatDateTime(checkIn.finished_at)}
-                        </p>
-                      </div>
-
-                      <div className="rounded-xl border border-border bg-muted/30 p-3">
-                        <p className="text-xs text-muted-foreground">Duração</p>
-                        <p className="mt-1 text-sm font-medium">
-                          {checkIn.duration_minutes !== null
-                            ? `${checkIn.duration_minutes}min`
-                            : "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    {checkIn.notes ? (
-                      <div className="rounded-xl border border-border bg-muted/30 p-3">
-                        <p className="text-xs text-muted-foreground">Observações</p>
-                        <p className="mt-1 text-sm font-medium">{checkIn.notes}</p>
-                      </div>
-                    ) : null}
-
-                    <div className="flex flex-wrap gap-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={!canStart || startingId === checkIn.id}
-                        onClick={() => void handleStartAttendance(checkIn.id)}
-                      >
-                        {startingId === checkIn.id
-                          ? "Iniciando..."
-                          : "Iniciar atendimento"}
-                      </Button>
-
-                      <Button
-                        type="button"
-                        disabled={!canFinish || finishingId === checkIn.id}
-                        onClick={() => void handleFinishAttendance(checkIn)}
-                      >
-                        {finishingId === checkIn.id
-                          ? "Finalizando..."
-                          : "Finalizar atendimento"}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-
-    {/* Finish Attendance Modal */}
-    <Dialog open={!!finishTarget} onOpenChange={(open) => { if (!open) setFinishTarget(null); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Finalizar atendimento</DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          <div className="space-y-2">
-            <Label htmlFor="serviceAmount">Valor do serviço (R$)</Label>
-            <Input
-              id="serviceAmount"
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="Ex: 50.00"
-              value={serviceAmount}
-              onChange={(e) => setServiceAmount(e.target.value)}
-              autoFocus
-            />
-            <p className="text-xs text-muted-foreground">
-              A comissão será calculada automaticamente com base no contrato.
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-5">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <Scissors className="h-6 w-6 text-primary" />
+              Check-in & Atendimentos
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Acompanhe a fila de espera, tempos de atendimento e liberações de acesso na portaria.
             </p>
           </div>
 
-          <div className="space-y-2">
-            <Label>Avaliação do atendimento (opcional)</Label>
-            <div className="flex items-center gap-1">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  type="button"
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoverRating(star)}
-                  onMouseLeave={() => setHoverRating(0)}
-                  className="p-1 transition-transform hover:scale-110"
-                >
-                  <Star
-                    className={`h-7 w-7 transition-colors ${
-                      star <= (hoverRating || rating)
-                        ? "fill-amber-400 text-amber-400"
-                        : "text-muted-foreground"
-                    }`}
-                  />
-                </button>
-              ))}
-              {rating > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setRating(0)}
-                  className="ml-2 text-xs text-muted-foreground underline"
-                >
-                  Limpar
-                </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              onClick={() => setNewCheckInOpen((prev) => !prev)}
+              className="gap-2 rounded-xl shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Novo check-in
+            </Button>
+
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => void loadData()}
+              className="rounded-xl shrink-0"
+              title="Atualizar dados"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        {/* Metrics Summary Cards */}
+        <div className="grid gap-4 sm:grid-cols-3">
+          <Card className="rounded-2xl border border-amber-200/60 bg-gradient-to-br from-amber-50/50 to-background dark:from-amber-950/20 shadow-sm">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400">Aguardando na Fila</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{waitingCount}</p>
+                <p className="text-[11px] text-muted-foreground">clientes na recepção</p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-300">
+                <Clock className="h-5 w-5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border border-emerald-200/60 bg-gradient-to-br from-emerald-50/50 to-background dark:from-emerald-950/20 shadow-sm">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">Em Atendimento</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{inProgressCount}</p>
+                <p className="text-[11px] text-muted-foreground">na cadeira agora</p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-300">
+                <Scissors className="h-5 w-5" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="rounded-2xl border border-blue-200/60 bg-gradient-to-br from-blue-50/50 to-background dark:from-blue-950/20 shadow-sm">
+            <CardContent className="p-4 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-medium text-blue-700 dark:text-blue-400">Finalizados Hoje</p>
+                <p className="mt-1 text-2xl font-bold text-foreground">{finishedCount}</p>
+                <p className="text-[11px] text-muted-foreground">serviços concluídos</p>
+              </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Collapsible / Expandable Form for New Check-In */}
+        {newCheckInOpen && (
+          <Card className="rounded-2xl border-2 border-primary/20 bg-card shadow-md transition-all">
+            <CardHeader className="pb-3 border-b border-border/40">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Plus className="h-4 w-4 text-primary" />
+                Registrar Novo Check-in
+              </CardTitle>
+            </CardHeader>
+
+            <CardContent className="space-y-4 pt-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-foreground">Cliente</label>
+                    <Dialog open={quickCreateOpen} onOpenChange={setQuickCreateOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-6 gap-1 px-2 text-[11px] text-primary">
+                          <UserPlus className="h-3 w-3" />
+                          Cadastrar rápido
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Cadastro Rápido de Cliente</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4 py-3">
+                          <div className="space-y-2">
+                            <Label>Nome completo</Label>
+                            <Input 
+                              value={newClientName} 
+                              onChange={(e) => setNewClientName(e.target.value)} 
+                              placeholder="Ex: João da Silva"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Telefone (opcional)</Label>
+                            <Input 
+                              value={newClientPhone} 
+                              onChange={(e) => setNewClientPhone(e.target.value)} 
+                              placeholder="(91) 99999-9999"
+                            />
+                          </div>
+                          <Button 
+                            className="w-full rounded-xl" 
+                            onClick={handleQuickCreateClient}
+                            disabled={creatingClient}
+                          >
+                            {creatingClient ? "Cadastrando..." : "Cadastrar e selecionar"}
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+
+                  <select
+                    className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                    value={selectedClientId}
+                    onChange={(e) => setSelectedClientId(e.target.value)}
+                  >
+                    <option value="">Selecione um cliente...</option>
+                    {clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {isReceptionist && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-foreground">Barbeiro / Profissional</label>
+                    <select
+                      className="flex h-10 w-full rounded-xl border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={selectedBarberId}
+                      onChange={(e) => setSelectedBarberId(e.target.value)}
+                    >
+                      <option value="">Selecione um barbeiro...</option>
+                      {barbersList.map((b) => (
+                        <option key={b.id} value={b.id}>
+                          {b.full_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-foreground">Observações (opcional)</label>
+                <Input
+                  className="rounded-xl text-sm"
+                  placeholder="Ex: Corte degrada + barba"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+
+              {!isReceptionist && !hasValidAccess && (
+                <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-950/40 p-3 text-xs text-red-700 dark:text-red-300">
+                  ⚠️ Você não possui contrato ativo nem booking ativo no momento para registrar check-in.
+                </div>
               )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="ghost" onClick={() => setNewCheckInOpen(false)} className="rounded-xl">
+                  Cancelar
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleCreateCheckIn}
+                  className="rounded-xl gap-2 shadow-sm"
+                  disabled={savingCheckIn || (!isReceptionist && !hasValidAccess) || (isReceptionist && (!selectedBarberId || (selectedBarberContracts.length === 0 && selectedBarberBookings.length === 0))) || !selectedClientId}
+                >
+                  {savingCheckIn ? "Registrando..." : "Confirmar Check-in"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Atendimentos Recentes List */}
+        <div className="space-y-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold tracking-tight text-foreground flex items-center gap-2">
+              <Calendar className="h-5 w-5 text-muted-foreground" />
+              Atendimentos Recentes
+            </h2>
+
+            {/* Filter Pills */}
+            <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-2xl border border-border/50 text-xs font-medium self-start sm:self-auto overflow-x-auto">
+              <button
+                type="button"
+                onClick={() => setActiveFilter("all")}
+                className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activeFilter === "all"
+                    ? "bg-background text-foreground font-semibold shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <span>Todos</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
+                  {allCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFilter("service")}
+                className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activeFilter === "service"
+                    ? "bg-background text-foreground font-semibold shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Scissors className="h-3.5 w-3.5 text-primary" />
+                <span>Atendimentos de Clientes</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
+                  {serviceCount}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveFilter("qr_gate")}
+                className={`px-3 py-1.5 rounded-xl transition-all flex items-center gap-1.5 ${
+                  activeFilter === "qr_gate"
+                    ? "bg-indigo-600 text-white font-semibold shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <QrCode className="h-3.5 w-3.5" />
+                <span>Portaria (QR Code)</span>
+                <span className="rounded-full bg-indigo-500/20 px-1.5 py-0.5 text-[10px]">
+                  {qrGateCount}
+                </span>
+              </button>
             </div>
           </div>
 
-          {rating > 0 && (
-            <div className="space-y-2">
-              <Label htmlFor="ratingComment">Comentário (opcional)</Label>
-              <Input
-                id="ratingComment"
-                value={ratingComment}
-                onChange={(e) => setRatingComment(e.target.value)}
-                placeholder="Muito caprichoso, atendeu bem..."
-              />
+          {filteredCheckIns.length === 0 ? (
+            <Card className="rounded-2xl border border-dashed border-border p-10 text-center">
+              <CardContent className="p-0">
+                <Scissors className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
+                <p className="text-base font-medium text-foreground">Nenhum registro nesta categoria.</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Alterne entre as abas acima para visualizar atendimentos de clientes ou acessos via QR Code.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid gap-3">
+              {filteredCheckIns.map((checkIn) => {
+                const isQrCodeAccess = checkIn.notes?.includes("Crachá Digital") || checkIn.notes?.includes("QR Code");
+                const isWaiting = !checkIn.started_at && !checkIn.finished_at;
+                const isInProgress = !!checkIn.started_at && !checkIn.finished_at;
+                const isFinished = !!checkIn.finished_at;
+
+                return (
+                  <Card 
+                    key={checkIn.id} 
+                    className="rounded-2xl border border-border/70 bg-card shadow-sm hover:border-border transition-all overflow-hidden"
+                  >
+                    <CardContent className="p-4 sm:p-5">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        {/* Left Info Column */}
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-base font-bold text-foreground">
+                              {checkIn.clientName}
+                            </span>
+
+                            {isQrCodeAccess && (
+                              <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300 border-indigo-200 hover:bg-indigo-100 font-medium text-[11px] gap-1">
+                                <QrCode className="h-3 w-3" />
+                                Crachá Digital (QR Code)
+                              </Badge>
+                            )}
+
+                            {isWaiting && !isQrCodeAccess && (
+                              <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-200 hover:bg-amber-100 font-medium text-[11px] gap-1">
+                                <Clock className="h-3 w-3" />
+                                Aguardando
+                              </Badge>
+                            )}
+
+                            {isInProgress && (
+                              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-200 hover:bg-emerald-100 font-medium text-[11px] gap-1">
+                                <Scissors className="h-3 w-3" />
+                                Em Atendimento
+                              </Badge>
+                            )}
+
+                            {isFinished && (
+                              <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-200 hover:bg-blue-100 font-medium text-[11px] gap-1">
+                                <CheckCircle2 className="h-3 w-3" />
+                                Finalizado
+                              </Badge>
+                            )}
+                          </div>
+
+                          {isReceptionist && (
+                            <p className="text-xs text-muted-foreground">
+                              Barbeiro: <span className="font-medium text-foreground">{getBarberNameOfCheckIn(checkIn)}</span>
+                            </p>
+                          )}
+
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground pt-0.5">
+                            <span>Check-in às <strong className="text-foreground">{formatTime(checkIn.checked_in_at ?? checkIn.created_at)}</strong></span>
+                            {checkIn.notes && !isQrCodeAccess && (
+                              <span className="truncate max-w-xs text-muted-foreground/80">• {checkIn.notes}</span>
+                            )}
+                          </div>
+
+                          {/* Render Duration / Timestamps for Active Haircut Services */}
+                          {!isQrCodeAccess && (isInProgress || isFinished) && (
+                            <div className="flex items-center gap-4 pt-2 text-xs">
+                              {checkIn.started_at && (
+                                <div className="rounded-lg bg-muted/40 px-2.5 py-1">
+                                  Início: <strong className="text-foreground">{formatTime(checkIn.started_at)}</strong>
+                                </div>
+                              )}
+                              {checkIn.finished_at && (
+                                <div className="rounded-lg bg-muted/40 px-2.5 py-1">
+                                  Fim: <strong className="text-foreground">{formatTime(checkIn.finished_at)}</strong>
+                                </div>
+                              )}
+                              {checkIn.duration_minutes !== null && (
+                                <div className="rounded-lg bg-emerald-100/50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 px-2.5 py-1 font-medium">
+                                  Duração: {checkIn.duration_minutes} min
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Right Action Column (Barber only) */}
+                        <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0">
+                          {isWaiting && !isQrCodeAccess && !isReceptionist && (
+                            <Button
+                              size="sm"
+                              className="rounded-xl gap-1.5 bg-primary text-primary-foreground shadow-sm hover:bg-primary/90"
+                              disabled={startingId === checkIn.id}
+                              onClick={() => void handleStartAttendance(checkIn.id)}
+                            >
+                              <Play className="h-3.5 w-3.5 fill-current" />
+                              {startingId === checkIn.id ? "Iniciando..." : "Iniciar atendimento"}
+                            </Button>
+                          )}
+
+                          {isInProgress && !isReceptionist && (
+                            <Button
+                              size="sm"
+                              className="rounded-xl gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                              disabled={finishingId === checkIn.id}
+                              onClick={() => void handleFinishAttendance(checkIn)}
+                            >
+                              <Check className="h-4 w-4" />
+                              {finishingId === checkIn.id ? "Finalizando..." : "Finalizar atendimento"}
+                            </Button>
+                          )}
+
+                          {isFinished && (
+                            <div className="text-right text-xs">
+                              <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2.5 py-1 rounded-xl">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Concluído
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </div>
+      </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setFinishTarget(null)} disabled={submittingFinish}>
-            Cancelar
-          </Button>
-          <Button onClick={handleConfirmFinish} disabled={submittingFinish}>
-            {submittingFinish ? "Finalizando..." : "Finalizar atendimento"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {/* Finish Attendance Modal */}
+      <Dialog open={!!finishTarget} onOpenChange={(open) => { if (!open) setFinishTarget(null); }}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-lg">
+              <Scissors className="h-5 w-5 text-primary" />
+              Finalizar Atendimento
+            </DialogTitle>
+          </DialogHeader>
+
+          {finishTarget && (
+            <div className="space-y-4 py-3">
+              <div className="rounded-xl border border-muted-foreground/10 bg-muted/20 p-3">
+                <p className="text-sm font-semibold text-foreground">{finishTarget.clientName}</p>
+                <p className="text-xs text-muted-foreground">
+                  Início: {formatTime(finishTarget.started_at)} • Duração estimada: {calculateDurationMinutes(finishTarget.started_at, new Date().toISOString()) ?? 0} min
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Valor do serviço prestado (R$)</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="Ex: 50.00"
+                  value={serviceAmount}
+                  onChange={(e) => setServiceAmount(e.target.value)}
+                  className="rounded-xl text-base font-semibold"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Avaliação do atendimento (opcional)</Label>
+                <div className="flex items-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setRating(star)}
+                      className="p-1 text-amber-400 hover:scale-110 transition"
+                    >
+                      <Star
+                        className={`h-6 w-6 ${
+                          star <= rating ? "fill-amber-400 text-amber-400" : "text-muted-foreground/30"
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {rating > 0 && (
+                <div className="space-y-2">
+                  <Label>Comentário da avaliação (opcional)</Label>
+                  <Input
+                    placeholder="Ex: Excelente atendimento, cliente muito satisfeito."
+                    value={ratingComment}
+                    onChange={(e) => setRatingComment(e.target.value)}
+                    className="rounded-xl text-sm"
+                  />
+                </div>
+              )}
+
+              <DialogFooter className="pt-2">
+                <Button variant="ghost" onClick={() => setFinishTarget(null)} className="rounded-xl">
+                  Cancelar
+                </Button>
+                <Button
+                  className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={handleConfirmFinish}
+                  disabled={submittingFinish}
+                >
+                  {submittingFinish ? "Salvando..." : "Confirmar e Concluir"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

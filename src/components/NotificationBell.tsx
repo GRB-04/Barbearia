@@ -16,19 +16,21 @@ type Notification = {
 };
 
 const typeColor: Record<string, string> = {
-  contract: "bg-blue-100 text-blue-700",
-  checkin:  "bg-emerald-100 text-emerald-700",
-  warning:  "bg-amber-100 text-amber-700",
-  success:  "bg-emerald-100 text-emerald-700",
-  info:     "bg-muted text-muted-foreground",
+  contract:  "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300",
+  checkin:   "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  qr_access: "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300",
+  warning:   "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300",
+  success:   "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300",
+  info:      "bg-muted text-muted-foreground",
 };
 
 const typeIcon: Record<string, string> = {
-  contract: "📄",
-  checkin:  "✅",
-  warning:  "⚠️",
-  success:  "✅",
-  info:     "🔔",
+  contract:  "📄",
+  checkin:   "✅",
+  qr_access: "📱",
+  warning:   "⚠️",
+  success:   "✅",
+  info:      "🔔",
 };
 
 export default function NotificationBell() {
@@ -57,9 +59,10 @@ export default function NotificationBell() {
     if (!user?.id) return;
     void fetchNotifications();
 
-    // Real-time subscription
-    const channel = supabase
-      .channel("notifications-" + user.id)
+    const channelTopic = `notif-${user.id}-${Math.random().toString(36).substring(2, 8)}`;
+    const channel = supabase.channel(channelTopic);
+
+    channel
       .on(
         "postgres_changes",
         {
@@ -69,12 +72,16 @@ export default function NotificationBell() {
           filter: `user_id=eq.${user.id}`,
         },
         (payload) => {
-          setNotifications((prev) => [payload.new as Notification, ...prev]);
+          if (payload.new) {
+            setNotifications((prev) => [payload.new as Notification, ...prev]);
+          }
         }
       )
       .subscribe();
 
-    return () => { void supabase.removeChannel(channel); };
+    return () => {
+      void supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
@@ -128,7 +135,7 @@ export default function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute left-0 top-10 z-50 w-80 rounded-2xl border border-border bg-popover shadow-xl">
+        <div className="absolute left-0 top-10 z-[100] w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-border bg-popover shadow-2xl">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Notificações</p>

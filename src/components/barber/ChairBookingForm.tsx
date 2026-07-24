@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
+import { format, addDays } from "date-fns";
+import { ptBR } from "date-fns/locale";
 import {
   createChairBooking,
   getChairBookingsByChairId,
@@ -17,12 +18,13 @@ import { useBarberProfile } from "@/hooks/useBarberProfile";
 import { 
   Calendar as CalendarIcon, 
   Clock, 
-  CheckCircle2, 
-  XCircle, 
   AlertTriangle, 
   Lock, 
-  Coffee,
-  Sparkles
+  Sparkles,
+  Sun,
+  Moon,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 
 type Props = {
@@ -74,7 +76,6 @@ export function getFriendlyBookingError(message: string): string {
   return message || "Erro ao processar reserva.";
 }
 
-// Gets the operating hours config for a given JS date.
 export function getDayConfig(locationHours: any, date: Date): { open: boolean; start?: string; end?: string } | null {
   if (!locationHours) return null;
   const dayName = DOW_TO_NAME[date.getDay()];
@@ -97,7 +98,6 @@ export function getDayConfig(locationHours: any, date: Date): { open: boolean; s
   };
 }
 
-// Gets the suggested booking slot (preserved for test compatibility)
 export function getSuggestedBookingSlot(now: Date, locationHours: any): { date: string; start: string; end: string } {
   const targetDate = new Date(now);
   if (targetDate.getMinutes() > 0) {
@@ -145,12 +145,11 @@ export function getSuggestedBookingSlot(now: Date, locationHours: any): { date: 
   fallback.setHours(9, 0, 0, 0);
   return {
     date: toDateStr(fallback),
-    start: "09:00",
-    end: "14:00"
+    start: "08:00",
+    end: "12:00"
   };
 }
 
-// Format operating hours for display
 export function formatDayHours(locationHours: any, date: Date): string {
   const config = getDayConfig(locationHours, date);
   if (!config) return "Sem horário definido";
@@ -158,6 +157,11 @@ export function formatDayHours(locationHours: any, date: Date): string {
   if (config.start && config.end) return `${config.start} – ${config.end}`;
   return "Aberto";
 }
+
+const FIXED_SHIFTS = [
+  { id: "morning", label: "Turno Manhã", time: "08:00 às 12:00", start: "08:00", end: "12:00", icon: Sun, price: 50 },
+  { id: "afternoon", label: "Turno Tarde", time: "14:00 às 18:00", start: "14:00", end: "18:00", icon: Moon, price: 50 },
+];
 
 export default function ChairBookingForm({
   chair,
@@ -169,13 +173,14 @@ export default function ChairBookingForm({
 
   const today = useMemo(() => {
     const d = new Date();
-    d.setHours(9, 0, 0, 0);
+    d.setHours(8, 0, 0, 0);
     return d;
   }, []);
 
   const [date, setDate] = useState(toDateStr(today));
-  const [startTime, setStartTime] = useState("09:00");
-  const [endTime, setEndTime] = useState("13:00");
+  const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon" | "custom">("morning");
+  const [startTime, setStartTime] = useState("08:00");
+  const [endTime, setEndTime] = useState("12:00");
   const [notes, setNotes] = useState("");
 
   const [bookings, setBookings] = useState<ChairBookingTimeRow[]>([]);
@@ -184,6 +189,24 @@ export default function ChairBookingForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [joiningWaitlist, setJoiningWaitlist] = useState(false);
+
+  // Generate 7 days for the horizontal date carousel
+  const carouselDays = useMemo(() => {
+    const days = [];
+    const startDate = new Date();
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(startDate, i);
+      days.push({
+        dateStr: toDateStr(d),
+        dateObj: d,
+        dayName: format(d, "EEE", { locale: ptBR }),
+        dayNum: format(d, "dd"),
+        monthName: format(d, "MMM", { locale: ptBR }).replace(".", ""),
+        isToday: i === 0,
+      });
+    }
+    return days;
+  }, []);
 
   async function load() {
     try {
@@ -201,7 +224,6 @@ export default function ChairBookingForm({
       if (bookingsResult.status === "fulfilled") {
         setBookings(bookingsResult.value);
       } else {
-        console.warn("Could not preload chair booking conflicts:", bookingsResult.reason);
         setBookings([]);
       }
 
@@ -209,10 +231,6 @@ export default function ChairBookingForm({
         const hours = locationRes.value.data?.operating_hours ?? null;
         setLocationHours(hours);
       } else {
-        console.warn(
-          "Could not load location operating hours:",
-          locationRes.status === "rejected" ? locationRes.reason : locationRes.value.error
-        );
         setLocationHours(null);
       }
     } catch (e) {
@@ -225,25 +243,27 @@ export default function ChairBookingForm({
   useEffect(() => {
     load();
     setError("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chair.chair_id]);
 
-  // Suggest a default valid slot when locationHours are loaded
   useEffect(() => {
     if (locationHours) {
       const suggestion = getSuggestedBookingSlot(new Date(), locationHours);
       setDate(suggestion.date);
-      setStartTime(suggestion.start);
-      setEndTime(suggestion.end);
     }
   }, [locationHours]);
 
-  // Validate against operating hours
+  function handleSelectShift(shiftId: "morning" | "afternoon") {
+    setSelectedShift(shiftId);
+    const shift = FIXED_SHIFTS.find((s) => s.id === shiftId);
+    if (shift) {
+      setStartTime(shift.start);
+      setEndTime(shift.end);
+    }
+  }
+
   function validateOperatingHours(s: Date, e: Date): string | null {
-    if (!locationHours) return null; // no hours configured — allow booking
-
+    if (!locationHours) return null;
     const config = getDayConfig(locationHours, s);
-
     if (!config) return "Sem configuração de horário para este dia.";
     if (config.open === false) return "Este local está fechado no dia selecionado.";
 
@@ -262,11 +282,9 @@ export default function ChairBookingForm({
         return `A reserva deve terminar até as ${config.end}.`;
       }
     }
-
     return null;
   }
 
-  // Filter bookings for the selected date
   const bookingsOnSelectedDate = useMemo(() => {
     if (!date) return [];
     return bookings.filter((b) => {
@@ -275,10 +293,9 @@ export default function ChairBookingForm({
     });
   }, [bookings, date]);
 
-  // Perform reactive live validation
   const validation = useMemo(() => {
     if (!date || !startTime || !endTime) {
-      return { isValid: false, error: "Selecione a data e horários.", conflict: false, conflictOwn: false };
+      return { isValid: false, error: "Selecione a data e o turno.", conflict: false, conflictOwn: false };
     }
 
     const s = buildDate(date, startTime);
@@ -288,24 +305,20 @@ export default function ChairBookingForm({
       return { isValid: false, error: "O horário de término deve ser após o horário de início.", conflict: false, conflictOwn: false };
     }
 
-    // 1. Minimum duration (4 hours)
     const durationMs = f.getTime() - s.getTime();
     if (durationMs < 4 * 60 * 60 * 1000) {
       return { isValid: false, error: "A reserva precisa ter no mínimo 4 horas.", conflict: false, conflictOwn: false };
     }
 
-    // 2. Start time in the past
     if (s < new Date()) {
       return { isValid: false, error: "O horário de início não pode ser no passado.", conflict: false, conflictOwn: false };
     }
 
-    // 3. Operating hours validation
     const hoursError = validateOperatingHours(s, f);
     if (hoursError) {
       return { isValid: false, error: hoursError, conflict: false, conflictOwn: false };
     }
 
-    // 4. Overlap/Conflict check
     const overlap = bookings.find((b) => {
       if (b.status === "cancelled" || b.status === "rejected") return false;
       const bs = new Date(b.start_at);
@@ -319,7 +332,7 @@ export default function ChairBookingForm({
         isValid: false,
         error: isOwn
           ? "Você já possui uma reserva ativa nesta cadeira neste período."
-          : "Esta cadeira já está reservada no período selecionado.",
+          : "Esta cadeira já está reservada no turno selecionado.",
         conflict: true,
         conflictOwn: !!isOwn,
       };
@@ -328,7 +341,6 @@ export default function ChairBookingForm({
     return { isValid: true, error: "", conflict: false, conflictOwn: false };
   }, [date, startTime, endTime, bookings, locationHours, currentBarberProfileId]);
 
-  // Calculations for display
   const hoursCount = useMemo(() => {
     if (!startTime || !endTime) return 0;
     const s = buildDate(date, startTime);
@@ -433,72 +445,97 @@ export default function ChairBookingForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="space-y-4 p-5 border rounded-2xl bg-card shadow-sm border-muted/50"
+      className="space-y-5 p-5 border rounded-3xl bg-card shadow-sm border-muted/60"
     >
       <div className="space-y-1">
-        <h3 className="font-semibold text-foreground flex items-center gap-2">
+        <h3 className="font-bold text-base text-foreground flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-amber-500" />
           Reservar {chair.chair_identifier}
         </h3>
         <p className="text-xs text-muted-foreground">{chair.location_name}</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {/* Date Selector */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-            <CalendarIcon className="h-3.5 w-3.5" />
-            Data
-          </label>
-          <Input
-            type="date"
-            value={date}
-            min={toDateStr(today)}
-            onChange={(e) => setDate(e.target.value)}
-            className="rounded-xl border-muted focus:ring-primary h-10"
-          />
+      {/* 1. Date Carousel (Estilo Fresha) */}
+      <div className="space-y-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <CalendarIcon className="h-3.5 w-3.5 text-primary" />
+          Selecione a Data
+        </label>
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          {carouselDays.map((item) => {
+            const isSelected = item.dateStr === date;
+            return (
+              <button
+                key={item.dateStr}
+                type="button"
+                onClick={() => setDate(item.dateStr)}
+                className={`flex flex-col items-center justify-center min-w-[62px] py-2.5 px-2 rounded-2xl border transition-all text-center select-none ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm font-semibold scale-105"
+                    : "bg-background text-foreground border-border hover:bg-muted/50"
+                }`}
+              >
+                <span className="text-[10px] uppercase tracking-wide opacity-80">
+                  {item.dayName}
+                </span>
+                <span className="text-lg font-extrabold leading-tight">
+                  {item.dayNum}
+                </span>
+                <span className="text-[9px] capitalize opacity-70">
+                  {item.monthName}
+                </span>
+              </button>
+            );
+          })}
         </div>
+      </div>
 
-        {/* Start Time */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            Início
-          </label>
-          <Input
-            type="time"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            className="rounded-xl border-muted focus:ring-primary h-10"
-          />
-        </div>
-
-        {/* End Time */}
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            Término
-          </label>
-          <Input
-            type="time"
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            className="rounded-xl border-muted focus:ring-primary h-10"
-          />
+      {/* 2. Turnos Fixos (Estilo Fresha / Requisito Reunião) */}
+      <div className="space-y-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-primary" />
+          Escolha o Turno
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          {FIXED_SHIFTS.map((shift) => {
+            const Icon = shift.icon;
+            const isSelected = selectedShift === shift.id;
+            return (
+              <button
+                key={shift.id}
+                type="button"
+                onClick={() => handleSelectShift(shift.id as "morning" | "afternoon")}
+                className={`flex flex-col items-start justify-between p-3.5 rounded-2xl border transition-all text-left ${
+                  isSelected
+                    ? "bg-primary/10 border-primary text-foreground ring-2 ring-primary/20 shadow-sm"
+                    : "bg-background border-border text-foreground hover:bg-muted/40"
+                }`}
+              >
+                <div className="flex items-center justify-between w-full mb-1">
+                  <span className="text-xs font-bold flex items-center gap-1.5">
+                    <Icon className={`h-4 w-4 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                    {shift.label}
+                  </span>
+                </div>
+                <span className="text-xs text-muted-foreground">{shift.time}</span>
+                <span className="text-xs font-semibold text-primary mt-2">R$ {shift.price},00</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {dayHours && (
-        <p className="text-xs text-muted-foreground bg-muted/40 p-2 rounded-lg">
-          Funcionamento: <span className="font-semibold text-foreground">{dayHours}</span>
+        <p className="text-xs text-muted-foreground bg-muted/40 p-2.5 rounded-xl border border-muted/50 text-center">
+          Horário de funcionamento: <span className="font-semibold text-foreground">{dayHours}</span>
         </p>
       )}
 
-      {/* Busy slots on selected date */}
+      {/* Busy slots notification */}
       {bookingsOnSelectedDate.length > 0 && (
-        <div className="space-y-1.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40 p-3.5 rounded-xl">
+        <div className="space-y-1.5 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 p-3.5 rounded-2xl">
           <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-400">
-            Horários ocupados nesta cadeira ({format(selectedDate, "dd/MM")}):
+            Turnos ocupados nesta cadeira ({format(selectedDate, "dd/MM")}):
           </p>
           <div className="flex flex-wrap gap-2 mt-1">
             {bookingsOnSelectedDate.map((b) => {
@@ -520,33 +557,37 @@ export default function ChairBookingForm({
 
       <div className="space-y-1">
         <label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          Observações
+          Observações (opcional)
         </label>
         <textarea
-          className="w-full border rounded-xl p-3 text-sm min-h-[70px] bg-background resize-none focus:ring-1 focus:ring-primary outline-none border-muted"
-          placeholder="Alguma observação para a reserva?"
+          className="w-full border rounded-2xl p-3 text-sm min-h-[60px] bg-background resize-none focus:ring-1 focus:ring-primary outline-none border-muted"
+          placeholder="Ex: Preciso de tomada próxima..."
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
       </div>
 
+      {/* Booking Summary Panel (Estilo Fresha) */}
       {hoursCount > 0 && (
-        <div className="rounded-xl bg-primary/5 p-4 border border-primary/10 flex justify-between items-center text-sm">
-          <span className="text-muted-foreground font-medium">Duração total ({hoursCount.toFixed(1)}h):</span>
-          <span className="font-bold text-primary text-base">R$ {totalPrice.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+        <div className="rounded-2xl bg-primary/5 p-4 border border-primary/15 flex justify-between items-center text-sm">
+          <div className="space-y-0.5">
+            <span className="text-xs text-muted-foreground font-medium block">Total da Reserva:</span>
+            <span className="text-xs font-semibold text-foreground">{date} ({startTime} – {endTime})</span>
+          </div>
+          <span className="font-extrabold text-primary text-lg">R$ {totalPrice.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       )}
 
-      {/* Confict / Warning handling */}
+      {/* Conflict / Warning handling */}
       {validation.conflict && !validation.conflictOwn && (
-        <div className="rounded-xl bg-amber-50 dark:bg-amber-950/20 p-3.5 border border-amber-200 dark:border-amber-900/40 space-y-2">
+        <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/20 p-3.5 border border-amber-200 dark:border-amber-900/40 space-y-2">
           <div className="flex items-start gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
             <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500 mt-0.5" />
-            <p>Esta cadeira já possui reserva nesse horário. Deseja entrar na fila de espera?</p>
+            <p>Este turno já está reservado. Deseja entrar na fila de espera?</p>
           </div>
           <Button
             type="button"
-            className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl h-10 text-xs font-semibold shadow-sm"
+            className="w-full bg-amber-600 hover:bg-amber-700 text-white rounded-2xl h-10 text-xs font-semibold shadow-sm"
             disabled={joiningWaitlist}
             onClick={handleJoinWaitlist}
           >
@@ -556,14 +597,14 @@ export default function ChairBookingForm({
       )}
 
       {error && (
-        <div className="rounded-xl bg-destructive/10 p-3.5 text-destructive text-xs font-semibold flex items-start gap-2 border border-destructive/20">
+        <div className="rounded-2xl bg-destructive/10 p-3.5 text-destructive text-xs font-semibold flex items-start gap-2 border border-destructive/20">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <p>{error}</p>
         </div>
       )}
 
       {(!validation.isValid && !validation.conflict && validation.error) && (
-        <div className="rounded-xl bg-muted/60 p-3.5 text-muted-foreground text-xs font-semibold flex items-start gap-2 border border-border">
+        <div className="rounded-2xl bg-muted/60 p-3.5 text-muted-foreground text-xs font-semibold flex items-start gap-2 border border-border">
           <AlertTriangle className="h-4 w-4 shrink-0 text-muted-foreground/60" />
           <p>{validation.error}</p>
         </div>
@@ -573,10 +614,10 @@ export default function ChairBookingForm({
         {!validation.conflict && (
           <Button
             type="submit"
-            className="flex-1 rounded-xl h-11 text-sm font-semibold shadow-sm"
+            className="flex-1 rounded-2xl h-12 text-sm font-bold shadow-sm"
             disabled={saving || !validation.isValid}
           >
-            {saving ? "Processando..." : "Confirmar reserva"}
+            {saving ? "Processando..." : "Confirmar Reserva do Turno"}
           </Button>
         )}
 
@@ -586,7 +627,7 @@ export default function ChairBookingForm({
             variant="outline"
             onClick={onCancel}
             disabled={saving || joiningWaitlist}
-            className="rounded-xl h-11 text-sm font-semibold"
+            className="rounded-2xl h-12 text-sm font-semibold"
           >
             Cancelar
           </Button>

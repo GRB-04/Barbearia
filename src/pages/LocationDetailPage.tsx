@@ -28,11 +28,26 @@ import {
   Plus,
   RefreshCw,
   Wrench,
+  Camera,
+  Upload,
+  MapPin,
+  Phone,
+  Instagram,
+  Sparkles,
+  Armchair,
+  Coffee,
+  Wifi,
+  Wind,
+  Car,
+  Gamepad2,
+  Accessibility,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
 import LocationWaitlistSection from "@/components/LocationWaitlistSection";
 
 type ChairStatus = "available" | "occupied" | "maintenance";
@@ -225,14 +240,20 @@ export default function LocationDetailPage() {
     air_conditioning: false,
   });
 
-  // Estados para edição dos dados básicos do local
+  // Estados para edição estendida da unidade
   const [editLocationOpen, setEditLocationOpen] = useState(false);
   const [editLocName, setEditLocName] = useState("");
   const [editLocAddress, setEditLocAddress] = useState("");
   const [editLocCity, setEditLocCity] = useState("");
   const [editLocState, setEditLocState] = useState("");
   const [editLocCapacity, setEditLocCapacity] = useState(2);
+  const [editLocCoverUrl, setEditLocCoverUrl] = useState("");
+  const [editLocDescription, setEditLocDescription] = useState("");
+  const [editLocPhone, setEditLocPhone] = useState("");
+  const [editLocInstagram, setEditLocInstagram] = useState("");
+  const [editLocAmenities, setEditLocAmenities] = useState<string[]>([]);
   const [savingLocation, setSavingLocation] = useState(false);
+  const [uploadingEditCover, setUploadingEditCover] = useState(false);
 
   // Sincroniza estados do form de edição quando a unidade carregar
   useEffect(() => {
@@ -242,6 +263,22 @@ export default function LocationDetailPage() {
       setEditLocCity(location.city ?? "");
       setEditLocState(location.state ?? "");
       setEditLocCapacity(location.capacity ?? 2);
+
+      const meta = (location.operating_hours || {}) as any;
+      setEditLocCoverUrl(
+        meta.cover_url ||
+          "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=1200&q=80"
+      );
+      setEditLocDescription(meta.description || "");
+      setEditLocPhone(meta.phone || "");
+      setEditLocInstagram(meta.instagram || "");
+      setEditLocAmenities(
+        meta.amenities || [
+          "Café & Cerveja Cortesia",
+          "Wi-Fi de Alta Velocidade",
+          "Ambiente Climatizado",
+        ]
+      );
     }
   }, [location]);
 
@@ -250,6 +287,40 @@ export default function LocationDetailPage() {
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organization?.id, id]);
+
+  const handleEditCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingEditCover(true);
+    try {
+      const fileExt = file.name.split(".").pop() || "jpg";
+      const fileName = `location-cover-${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(fileName);
+
+      setEditLocCoverUrl(data.publicUrl);
+      toast.success("Foto de capa enviada com sucesso!");
+    } catch (err: any) {
+      toast.error(err.message || "Erro ao fazer upload da capa.");
+    } finally {
+      setUploadingEditCover(false);
+    }
+  };
+
+  const toggleEditAmenity = (label: string) => {
+    setEditLocAmenities((prev) =>
+      prev.includes(label)
+        ? prev.filter((a) => a !== label)
+        : [...prev, label]
+    );
+  };
 
   const handleSaveLocation = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,6 +336,16 @@ export default function LocationDetailPage() {
 
     setSavingLocation(true);
     try {
+      const currentOperatingHours = (location.operating_hours || {}) as any;
+      const updatedOperatingHours = {
+        ...currentOperatingHours,
+        cover_url: editLocCoverUrl,
+        description: editLocDescription.trim(),
+        phone: editLocPhone.trim(),
+        instagram: editLocInstagram.trim(),
+        amenities: editLocAmenities,
+      };
+
       const { error } = await supabase
         .from("locations")
         .update({
@@ -273,6 +354,7 @@ export default function LocationDetailPage() {
           city: editLocCity.trim(),
           state: editLocState.trim(),
           capacity: editLocCapacity,
+          operating_hours: updatedOperatingHours as import("@/integrations/supabase/types").Json,
         })
         .eq("id", location.id);
 
@@ -548,141 +630,307 @@ export default function LocationDetailPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <Link
-        to="/locations"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" />
-        Locais
-      </Link>
+      {/* Hero Banner Header Section */}
+      <div className="relative rounded-3xl border border-border/80 bg-card overflow-hidden shadow-xs space-y-0">
+        <div className="relative h-64 sm:h-80 w-full overflow-hidden bg-muted">
+          <img
+            src={
+              (location.operating_hours as any)?.cover_url ||
+              "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?auto=format&fit=crop&w=1200&q=80"
+            }
+            alt={location.name}
+            className="h-full w-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/20" />
 
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            {location.name}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {[location.address, location.city].filter(Boolean).join(", ") || "Sem endereço"}
-          </p>
+          {/* Top Header Actions */}
+          <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+            <Link
+              to="/locations"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-background/80 hover:bg-background text-foreground text-xs font-semibold backdrop-blur-xs transition-all shadow-sm"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Voltar aos Locais
+            </Link>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
-              Capacidade: {totalChairs}/{capacity}
-            </span>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
-              Disponíveis: {availableCount}
-            </span>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
-              Ocupadas: {occupiedCount}
-            </span>
-            <span className="rounded-full bg-secondary px-2.5 py-1 text-secondary-foreground">
-              Manutenção: {maintenanceCount}
-            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchAll}
+                className="rounded-xl bg-background/80 hover:bg-background border-none backdrop-blur-xs shadow-xs text-xs font-semibold"
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Atualizar
+              </Button>
+
+              {/* Modal para Editar Local */}
+              <Dialog open={editLocationOpen} onOpenChange={setEditLocationOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm" className="rounded-xl font-semibold text-xs shadow-sm gap-1.5">
+                    <Pencil className="h-3.5 w-3.5" />
+                    Editar local
+                  </Button>
+                </DialogTrigger>
+
+                <DialogContent className="sm:max-w-[640px] rounded-3xl max-h-[90vh] overflow-y-auto p-6">
+                  <DialogHeader>
+                    <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                      <Pencil className="h-5 w-5 text-primary" />
+                      Editar Barbearia — {location.name}
+                    </DialogTitle>
+                  </DialogHeader>
+
+                  <form onSubmit={handleSaveLocation} className="space-y-6 pt-2">
+                    {/* Cover photo section */}
+                    <div className="space-y-3">
+                      <Label className="text-sm font-semibold">Foto de Capa / Fachada</Label>
+                      <div className="relative h-40 w-full rounded-2xl border overflow-hidden bg-muted/30 group">
+                        <img src={editLocCoverUrl} alt="Capa" className="h-full w-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                          <label className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-background/90 text-foreground text-xs font-semibold hover:bg-background cursor-pointer shadow-md">
+                            <Upload className="h-4 w-4" />
+                            {uploadingEditCover ? "Enviando..." : "Subir Foto"}
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={handleEditCoverUpload}
+                              disabled={uploadingEditCover}
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Basic details */}
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="locName">Nome da Barbearia</Label>
+                        <Input
+                          id="locName"
+                          value={editLocName}
+                          onChange={(e) => setEditLocName(e.target.value)}
+                          placeholder="Nome da unidade"
+                          className="rounded-2xl"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2 sm:col-span-2">
+                        <Label htmlFor="locAddress">Endereço Completo</Label>
+                        <Input
+                          id="locAddress"
+                          value={editLocAddress}
+                          onChange={(e) => setEditLocAddress(e.target.value)}
+                          placeholder="Endereço completo"
+                          className="rounded-2xl"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="locCity">Cidade</Label>
+                        <Input
+                          id="locCity"
+                          value={editLocCity}
+                          onChange={(e) => setEditLocCity(e.target.value)}
+                          placeholder="Cidade"
+                          className="rounded-2xl"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="locState">Estado (UF)</Label>
+                        <Input
+                          id="locState"
+                          value={editLocState}
+                          onChange={(e) => setEditLocState(e.target.value)}
+                          placeholder="Estado"
+                          className="rounded-2xl"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="locCapacity" className="flex items-center gap-1.5">
+                        <Armchair className="h-4 w-4 text-primary" />
+                        Capacidade de Bancadas
+                      </Label>
+                      <Input
+                        id="locCapacity"
+                        type="number"
+                        min={totalChairs}
+                        max={50}
+                        value={editLocCapacity}
+                        onChange={(e) => setEditLocCapacity(Number(e.target.value))}
+                        className="rounded-2xl"
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Mínimo permitido: {totalChairs} (quantidade de cadeiras atualmente criadas).
+                      </p>
+                    </div>
+
+                    {/* Presentation & Contact */}
+                    <div className="space-y-4 pt-2 border-t border-border">
+                      <div className="space-y-2">
+                        <Label htmlFor="editLocDesc">Descrição / Apresentação</Label>
+                        <Textarea
+                          id="editLocDesc"
+                          value={editLocDescription}
+                          onChange={(e) => setEditLocDescription(e.target.value)}
+                          placeholder="Apresentação da unidade..."
+                          className="rounded-2xl min-h-[70px] text-sm"
+                        />
+                      </div>
+
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="editLocPhone">Telefone / WhatsApp</Label>
+                          <Input
+                            id="editLocPhone"
+                            value={editLocPhone}
+                            onChange={(e) => setEditLocPhone(e.target.value)}
+                            placeholder="(91) 99999-9999"
+                            className="rounded-2xl"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="editLocInsta">Instagram</Label>
+                          <Input
+                            id="editLocInsta"
+                            value={editLocInstagram}
+                            onChange={(e) => setEditLocInstagram(e.target.value)}
+                            placeholder="@barbeariaprime"
+                            className="rounded-2xl"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Amenities */}
+                    <div className="space-y-2 pt-2 border-t border-border">
+                      <Label className="text-sm font-semibold">Comodidades & Diferenciais</Label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {[
+                          "Café & Cerveja Cortesia",
+                          "Wi-Fi de Alta Velocidade",
+                          "Ambiente Climatizado",
+                          "Estacionamento no Local",
+                          "Espaço Gamer / Jogos",
+                          "Acessibilidade PCD",
+                        ].map((label) => {
+                          const isSelected = editLocAmenities.includes(label);
+                          return (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => toggleEditAmenity(label)}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs text-left transition-all ${
+                                isSelected
+                                  ? "bg-primary/10 border-primary text-foreground font-semibold"
+                                  : "bg-muted/30 border-border/60 text-muted-foreground hover:bg-muted/60"
+                              }`}
+                            >
+                              <Sparkles className={`h-3.5 w-3.5 ${isSelected ? "text-primary" : ""}`} />
+                              <span className="truncate">{label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <Button
+                        type="submit"
+                        className="w-full rounded-2xl h-11 font-bold text-base shadow-sm"
+                        disabled={savingLocation || uploadingEditCover}
+                      >
+                        {savingLocation ? "Salvando..." : "Salvar Alterações do Local"}
+                      </Button>
+                    </div>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
 
-          <p className="mt-2 text-xs text-muted-foreground">
-            {remainingSlots > 0
-              ? `${remainingSlots} vaga${remainingSlots > 1 ? "s" : ""} restante${remainingSlots > 1 ? "s" : ""} neste local.`
-              : "Este local atingiu a capacidade máxima de cadeiras."}
-          </p>
+          {/* Bottom Hero Information */}
+          <div className="absolute bottom-4 left-5 right-5 text-white flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight drop-shadow-md">
+                  {location.name}
+                </h1>
+                <Badge className="bg-emerald-500 text-white font-semibold text-xs shadow-sm">
+                  Unidade Ativa
+                </Badge>
+              </div>
+
+              <p className="text-xs sm:text-sm text-white/90 flex items-center gap-1.5">
+                <MapPin className="h-4 w-4 text-primary shrink-0" />
+                {[location.address, location.city, location.state].filter(Boolean).join(", ") || "Sem endereço"}
+              </p>
+
+              {(location.operating_hours as any)?.description && (
+                <p className="text-xs text-white/80 italic max-w-2xl line-clamp-2 pt-0.5">
+                  {`"${(location.operating_hours as any).description}"`}
+                </p>
+              )}
+            </div>
+
+            {/* Badges on Hero */}
+            <div className="flex flex-wrap gap-2 text-xs shrink-0 pt-2 sm:pt-0">
+              <span className="rounded-xl bg-white/20 backdrop-blur-md px-3 py-1.5 font-bold text-white shadow-xs border border-white/20">
+                Capacidade: {totalChairs}/{capacity}
+              </span>
+              <span className="rounded-xl bg-emerald-500/80 backdrop-blur-md px-3 py-1.5 font-bold text-white shadow-xs">
+                Disponíveis: {availableCount}
+              </span>
+              <span className="rounded-xl bg-amber-500/80 backdrop-blur-md px-3 py-1.5 font-bold text-white shadow-xs">
+                Ocupadas: {occupiedCount}
+              </span>
+              {maintenanceCount > 0 && (
+                <span className="rounded-xl bg-red-500/80 backdrop-blur-md px-3 py-1.5 font-bold text-white shadow-xs">
+                  Manutenção: {maintenanceCount}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchAll}
-            className="rounded-xl"
-          >
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            Atualizar
-          </Button>
+        {/* Amenities Bar under Hero */}
+        {((location.operating_hours as any)?.amenities?.length > 0 || (location.operating_hours as any)?.phone || (location.operating_hours as any)?.instagram) && (
+          <div className="p-4 bg-muted/30 flex flex-wrap items-center justify-between gap-3 text-xs border-t border-border/50">
+            <div className="flex items-center gap-2 flex-wrap">
+              {((location.operating_hours as any)?.amenities || []).map((amenity: string) => (
+                <span key={amenity} className="inline-flex items-center gap-1 font-semibold text-foreground bg-background px-3 py-1 rounded-xl border border-border/60 shadow-2xs">
+                  <Sparkles className="h-3 w-3 text-primary" />
+                  {amenity}
+                </span>
+              ))}
+            </div>
 
-          {/* Modal para Editar Local */}
-          <Dialog
-            open={editLocationOpen}
-            onOpenChange={setEditLocationOpen}
-          >
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="rounded-xl">
-                <Pencil className="mr-1.5 h-3.5 w-3.5" />
-                Editar local
-              </Button>
-            </DialogTrigger>
-
-            <DialogContent className="sm:max-w-[560px]">
-              <DialogHeader>
-                <DialogTitle>Editar local — {location.name}</DialogTitle>
-              </DialogHeader>
-
-              <form onSubmit={handleSaveLocation} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="locName">Nome</Label>
-                  <Input
-                    id="locName"
-                    value={editLocName}
-                    onChange={(e) => setEditLocName(e.target.value)}
-                    placeholder="Nome da unidade"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="locAddress">Endereço</Label>
-                  <Input
-                    id="locAddress"
-                    value={editLocAddress}
-                    onChange={(e) => setEditLocAddress(e.target.value)}
-                    placeholder="Endereço completo"
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="locCity">Cidade</Label>
-                    <Input
-                      id="locCity"
-                      value={editLocCity}
-                      onChange={(e) => setEditLocCity(e.target.value)}
-                      placeholder="Cidade"
-                      required
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="locState">Estado</Label>
-                    <Input
-                      id="locState"
-                      value={editLocState}
-                      onChange={(e) => setEditLocState(e.target.value)}
-                      placeholder="Estado"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="locCapacity">Capacidade de cadeiras</Label>
-                  <Input
-                    id="locCapacity"
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={editLocCapacity}
-                    onChange={(e) => setEditLocCapacity(Number(e.target.value))}
-                    required
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Define a capacidade máxima de cadeiras deste ponto (mínimo: {totalChairs} de cadeiras cadastradas).
-                  </p>
-                </div>
-
-                <Button type="submit" className="w-full" disabled={savingLocation}>
-                  {savingLocation ? "Salvando..." : "Salvar alterações"}
-                </Button>
-              </form>
-            </DialogContent>
-          </Dialog>
+            <div className="flex items-center gap-4 text-muted-foreground font-medium">
+              {(location.operating_hours as any)?.phone && (
+                <span className="flex items-center gap-1">
+                  <Phone className="h-3.5 w-3.5 text-primary" />
+                  {(location.operating_hours as any).phone}
+                </span>
+              )}
+              {(location.operating_hours as any)?.instagram && (
+                <span className="flex items-center gap-1">
+                  <Instagram className="h-3.5 w-3.5 text-primary" />
+                  {(location.operating_hours as any).instagram}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
 
           <Dialog
             open={addChairOpen}
@@ -783,15 +1031,13 @@ export default function LocationDetailPage() {
               </form>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
 
       {/* Per-location booking confirmation override */}
       <div className="rounded-3xl border border-border bg-card p-5 shadow-sm space-y-3">
         <div>
           <h2 className="text-sm font-semibold text-foreground">Confirmação de reservas</h2>
           <p className="text-xs text-muted-foreground">
-            Substitui o padrão da organização apenas para este local. "Herdar" usa o padrão da organização.
+            Substitui o padrão da organização apenas para este local. &quot;Herdar&quot; usa o padrão da organização.
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">

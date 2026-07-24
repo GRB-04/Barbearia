@@ -21,6 +21,7 @@ import ManagerLayout from "./components/ManagerLayout";
 import ConsentBanner from "./components/ConsentBanner";
 import NotFound from "./pages/NotFound";
 import BarberAuthPage from "./pages/barber/BarberAuthPage";
+import AccessGatePage from "./pages/AccessGatePage";
 
 // Owner portal — lazy loaded
 const OwnerDashboardPage  = lazy(() => import("./pages/OwnerDashboardPage"));
@@ -269,6 +270,7 @@ function ManagerRoutes() {
           <Route path="barbers" element={<ManagerBarbersPage />} />
           <Route path="contracts" element={<ManagerContractsPage />} />
           <Route path="chairs" element={<ManagerChairsPage />} />
+          <Route path="profile" element={<BarberProfilePage />} />
           <Route
             path="payments"
             element={
@@ -312,6 +314,8 @@ const App = () => {
             <OrgProvider>
               <BarberProfileProvider>
                 <Routes>
+                  {/* ── Public route — no auth required ── */}
+                  <Route path="/access/:barberId" element={<AccessGatePage />} />
                   <Route path="/barber/*" element={<BarberRoutes />} />
                   <Route path="/manager/*" element={<ManagerRoutes />} />
                   <Route path="/*" element={<OwnerRoutes />} />

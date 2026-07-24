@@ -1,4 +1,4 @@
-﻿import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { useBarberProfile } from "@/hooks/useBarberProfile";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ export default function BarberAuthPage() {
   }, [searchParams]);
 
   const [isSignUp, setIsSignUp] = useState(Boolean(searchParams.get("org")));
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => searchParams.get("email") || "");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
@@ -111,6 +111,33 @@ export default function BarberAuthPage() {
     };
   }, []);
 
+  const redirectByRole = async (targetUserId?: string) => {
+    try {
+      const uId = targetUserId || (await supabase.auth.getUser()).data.user?.id;
+      if (!uId) {
+        navigate("/barber/dashboard");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("barber_profiles")
+        .select("role")
+        .eq("user_id", uId)
+        .maybeSingle();
+
+      const role = profile?.role;
+      if (role === "manager") {
+        navigate("/manager/dashboard");
+      } else if (role === "receptionist") {
+        navigate("/barber/check-in");
+      } else {
+        navigate("/barber/dashboard");
+      }
+    } catch {
+      navigate("/barber/dashboard");
+    }
+  };
+
   // Form Submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,7 +175,7 @@ export default function BarberAuthPage() {
             await refreshBarberProfile();
           }
         }
-        navigate("/barber/dashboard");
+        await redirectByRole();
       } catch (err: any) {
         let errorMessage = err?.message || "Ocorreu um erro. Tente novamente.";
         if (errorMessage.toLowerCase().includes("invalid login")) {
@@ -228,7 +255,7 @@ export default function BarberAuthPage() {
 
       setSignUpStep("success");
       await new Promise(r => setTimeout(r, 1200));
-      navigate("/barber/dashboard");
+      await redirectByRole(newUser.id);
     } catch (err: any) {
       let errorMessage = err?.message || "Ocorreu um erro no cadastro.";
       if (errorMessage.toLowerCase().includes("already registered")) {
@@ -270,7 +297,7 @@ export default function BarberAuthPage() {
                   try {
                     await claimBarberInvitation(organizationId!, fullName || undefined, phone || undefined);
                     toast.success("Vinculado à barbearia com sucesso!");
-                    navigate("/barber/dashboard");
+                    await redirectByRole();
                   } catch (err: any) {
                     setError(err?.message || "Convite não encontrado. Peça ao dono da barbearia para adicionar seu email primeiro.");
                   } finally {
@@ -291,12 +318,12 @@ export default function BarberAuthPage() {
                   await refreshBarberProfile();
                 } finally {
                   setLoading(false);
-                  navigate("/barber/dashboard");
+                  await redirectByRole();
                 }
               }}
               disabled={loading}
             >
-              Ir para o Dashboard
+              Ir para o Painel
             </Button>
           </div>
           <div className="pt-4">
@@ -314,225 +341,308 @@ export default function BarberAuthPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="w-full max-w-sm space-y-6 p-6">
-        
-        {/* Top Header branding */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-foreground">
-            <Scissors className="h-5 w-5 text-background" />
+    <div className="flex min-h-screen">
+      {/* Left decorative panel */}
+      <div
+        className="hidden lg:flex flex-col justify-between w-1/2 p-10 relative overflow-hidden"
+      >
+        {/* Full photo background */}
+        <img
+          src="/barber-house-hero.jpg"
+          alt="Barber House"
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        {/* Dark overlay */}
+        <div
+          className="absolute inset-0"
+          style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.5) 0%, rgba(0,0,0,0.25) 40%, rgba(0,0,0,0.75) 100%)" }}
+        />
+        {/* Vignette */}
+        <div
+          className="absolute inset-0 opacity-30"
+          style={{ backgroundImage: `radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.8) 100%)` }}
+        />
+
+        {/* Barber pole stripe accent */}
+        <div
+          className="absolute top-0 left-10 w-1 h-full opacity-30"
+          style={{ background: "repeating-linear-gradient(to bottom, #dc2626 0px, #dc2626 18px, white 18px, white 36px, #1d4ed8 36px, #1d4ed8 54px)" }}
+        />
+
+        {/* Logo */}
+        <div className="relative z-10">
+          <div>
+            <p className="text-white font-bold text-2xl tracking-tight">Barber House</p>
+            <p className="text-amber-400/80 text-xs font-medium tracking-widest uppercase">
+              Gestão & Estilo
+            </p>
           </div>
-
-          <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Portal do Barbeiro
-          </h1>
-
-          <p className="text-sm text-muted-foreground text-center">
-            {isSignUp
-              ? signUpStep === "fields"
-                ? "Preencha seus dados para começar."
-                : signUpStep === "selfie"
-                ? "Validação Facial de Segurança"
-                : signUpStep === "processing"
-                ? "Biometria em andamento"
-                : "Acesso Liberado!"
-              : "Acesse sua conta de barbeiro ou de gerente."}
-          </p>
         </div>
 
-        {/* STEP 1: Fields Registration OR Login */}
-        {(!isSignUp || signUpStep === "fields") && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {isSignUp && (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="fullName" className="text-sm font-medium">
-                    Nome completo
-                  </Label>
-                  <Input
-                    id="fullName"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    placeholder="João da Silva"
-                    required
-                  />
-                </div>
+        {/* Tagline */}
+        <div className="relative z-10 pb-6">
+          <h2 className="text-4xl font-extrabold text-white leading-tight tracking-tight">
+            Seu espaço,<br />
+            <span style={{ color: "#d97706" }}>seu controle.</span>
+          </h2>
+          <p className="mt-3 text-white/70 text-sm leading-relaxed max-w-xs">
+            Acesse seu painel de barbeiro ou gerente e controle sua agenda, cadeiras e comissões com facilidade.
+          </p>
+        </div>
+      </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-sm font-medium">
-                    Telefone
-                  </Label>
-                  <Input
-                    id="phone"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+55 91 99999-9999"
-                  />
-                </div>
+      {/* Right form panel */}
+      <div className="flex flex-1 items-center justify-center bg-background px-6 py-12">
+        <div className="w-full max-w-md space-y-7">
+
+          {/* Mobile logo */}
+          <div className="flex flex-col items-center gap-3 lg:hidden">
+            <div
+              className="flex h-14 w-14 items-center justify-center rounded-2xl shadow-lg"
+              style={{ background: "linear-gradient(135deg, #b45309, #92400e)" }}
+            >
+              <Scissors className="h-7 w-7 text-white" />
+            </div>
+            <div className="text-center">
+              <p className="font-bold text-2xl tracking-tight text-foreground">Barber House</p>
+              <p className="text-muted-foreground text-xs tracking-widest uppercase mt-0.5">
+                {isSignUp ? "Cadastro" : "Portal do Barbeiro"}
+              </p>
+            </div>
+          </div>
+
+          {/* Desktop heading — adaptive per step */}
+          <div className="hidden lg:block">
+            {(!isSignUp || signUpStep === "fields") && (
+              <>
+                <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
+                  {isSignUp ? "Crie sua conta ✂️" : "Olá, barbeiro! 👋"}
+                </h1>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  {isSignUp
+                    ? "Preencha seus dados para começar na Barber House."
+                    : "Acesse sua conta de barbeiro ou gerente."}
+                </p>
               </>
             )}
+            {isSignUp && signUpStep === "selfie" && (
+              <>
+                <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+                  Validação Facial 🔐
+                </h1>
+                <p className="mt-1 text-muted-foreground text-sm">
+                  Para maior segurança, registre sua selfie para controle de acesso.
+                </p>
+              </>
+            )}
+            {isSignUp && signUpStep === "processing" && (
+              <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+                Processando biometria...
+              </h1>
+            )}
+            {isSignUp && signUpStep === "success" && (
+              <h1 className="text-2xl font-extrabold tracking-tight text-foreground">
+                Conta ativada! 🎉
+              </h1>
+            )}
+          </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email" className="text-sm font-medium">
-                E-mail
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="barbeiro@email.com"
-                required
-              />
-            </div>
+          {/* STEP 1 — Login or Signup Fields */}
+          {(!isSignUp || signUpStep === "fields") && (
+            <form onSubmit={handleSubmit} className="space-y-5">
+              {isSignUp && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="fullName" className="text-sm font-semibold">Nome completo</Label>
+                    <Input
+                      id="fullName"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      placeholder="João da Silva"
+                      required
+                      className="h-11 rounded-xl"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone" className="text-sm font-semibold">Telefone</Label>
+                    <Input
+                      id="phone"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      placeholder="+55 91 99999-9999"
+                      className="h-11 rounded-xl"
+                    />
+                  </div>
+                </>
+              )}
 
-            <div className="space-y-2">
-              <Label htmlFor="password" className="text-sm font-medium">
-                Senha
-              </Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-                minLength={6}
-              />
-            </div>
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
-            <Button
-              type="submit"
-              className="w-full bg-foreground text-background hover:bg-foreground/90"
-              disabled={loading}
-            >
-              {loading
-                ? "Carregando..."
-                : isSignUp
-                ? "Avançar para Validação Facial"
-                : "Entrar"}
-            </Button>
-          </form>
-        )}
-
-        {/* STEP 2: Selfie Biometric verification screen */}
-        {isSignUp && signUpStep === "selfie" && (
-          <div className="space-y-6 text-center">
-            <p className="text-xs text-muted-foreground">
-              Para maior segurança e controle de acesso às cadeiras, realize o escaneamento facial.
-            </p>
-
-            <div className="flex flex-col items-center justify-center gap-4">
-              {/* Webcam viewport circle */}
-              <div className="relative h-44 w-44 rounded-full border-4 border-muted-foreground/20 bg-muted/40 overflow-hidden flex items-center justify-center">
-                {photoPreview ? (
-                  <img src={photoPreview} alt="Selfie Preview" className="h-full w-full object-cover" />
-                ) : cameraActive ? (
-                  <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover bg-black scale-x-[-1]" />
-                ) : (
-                  <User className="h-16 w-16 text-muted-foreground" />
-                )}
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-sm font-semibold">E-mail</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="barbeiro@barberhouse.com.br"
+                  required
+                  className="h-11 rounded-xl"
+                />
               </div>
 
-              {/* Camera Actions */}
-              <div className="flex flex-wrap gap-2 justify-center">
-                {cameraActive ? (
-                  <>
-                    <Button type="button" onClick={captureSelfie} className="rounded-xl">Capturar Foto</Button>
-                    <Button type="button" variant="outline" onClick={stopCamera} className="rounded-xl">Cancelar</Button>
-                  </>
-                ) : (
-                  <Button type="button" variant="outline" onClick={startCamera} className="rounded-xl gap-1">
-                    <Camera className="h-4 w-4" />
-                    Tirar Selfie
-                  </Button>
-                )}
-
-                <label className="inline-flex items-center justify-center text-xs font-semibold border rounded-xl hover:bg-muted/40 cursor-pointer h-10 px-4 select-none gap-1 transition-all">
-                  <Upload className="h-4 w-4" />
-                  Galeria
-                  <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-                </label>
-
-                {photoPreview && (
-                  <Button type="button" variant="ghost" onClick={handleRemovePhoto} className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive gap-1">
-                    <Trash2 className="h-4 w-4" />
-                    Limpar
-                  </Button>
-                )}
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-sm font-semibold">Senha</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  minLength={6}
+                  className="h-11 rounded-xl"
+                />
               </div>
-            </div>
 
-            <div className="space-y-2 pt-4">
-              <Button 
-                onClick={() => handleCompleteBiometricRegistration(false)} 
-                className="w-full bg-foreground text-background hover:bg-foreground/90 rounded-xl"
-                disabled={!selectedPhoto || loading}
-              >
-                Confirmar Biometria
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                onClick={() => handleCompleteBiometricRegistration(true)} 
-                className="w-full text-xs text-muted-foreground"
+              {error && (
+                <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3">
+                  <p className="text-sm text-destructive">{error}</p>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full h-11 rounded-xl font-bold text-base shadow-md text-white"
+                style={{ background: "linear-gradient(135deg, #1f2937, #111827)" }}
                 disabled={loading}
               >
-                Pular e validar depois
+                {loading
+                  ? "Carregando..."
+                  : isSignUp
+                  ? "Avançar para Validação Facial ✂️"
+                  : "Entrar na Barber House"}
               </Button>
+
+              <p className="text-center text-sm text-muted-foreground">
+                {isSignUp ? "Já tem uma conta?" : "Ainda não tem conta?"}{" "}
+                <button
+                  type="button"
+                  onClick={() => { setError(""); setIsSignUp(!isSignUp); setSignUpStep("fields"); }}
+                  className="font-semibold text-primary hover:underline"
+                >
+                  {isSignUp ? "Fazer Login" : "Criar Conta"}
+                </button>
+              </p>
+            </form>
+          )}
+
+          {/* STEP 2 — Selfie */}
+          {isSignUp && signUpStep === "selfie" && (
+            <div className="space-y-6 text-center">
+              <p className="text-xs text-muted-foreground">
+                Para maior segurança e controle de acesso às cadeiras, realize o escaneamento facial.
+              </p>
+
+              <div className="flex flex-col items-center justify-center gap-4">
+                <div
+                  className="relative h-48 w-48 rounded-full overflow-hidden flex items-center justify-center"
+                  style={{ border: "3px solid #d97706", background: "rgba(180,83,9,0.08)" }}
+                >
+                  {photoPreview ? (
+                    <img src={photoPreview} alt="Selfie Preview" className="h-full w-full object-cover" />
+                  ) : cameraActive ? (
+                    <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover bg-black scale-x-[-1]" />
+                  ) : (
+                    <User className="h-20 w-20 text-muted-foreground" />
+                  )}
+                </div>
+
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {cameraActive ? (
+                    <>
+                      <Button type="button" onClick={captureSelfie} className="rounded-xl">Capturar Foto</Button>
+                      <Button type="button" variant="outline" onClick={stopCamera} className="rounded-xl">Cancelar</Button>
+                    </>
+                  ) : (
+                    <Button type="button" variant="outline" onClick={startCamera} className="rounded-xl gap-1">
+                      <Camera className="h-4 w-4" />
+                      Tirar Selfie
+                    </Button>
+                  )}
+
+                  <label className="inline-flex items-center justify-center text-xs font-semibold border rounded-xl hover:bg-muted/40 cursor-pointer h-10 px-4 select-none gap-1 transition-all">
+                    <Upload className="h-4 w-4" />
+                    Galeria
+                    <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                  </label>
+
+                  {photoPreview && (
+                    <Button type="button" variant="ghost" onClick={handleRemovePhoto} className="rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive gap-1">
+                      <Trash2 className="h-4 w-4" />
+                      Limpar
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Button
+                  onClick={() => handleCompleteBiometricRegistration(false)}
+                  className="w-full h-11 rounded-xl font-bold text-white"
+                  style={{ background: "linear-gradient(135deg, #b45309, #92400e)" }}
+                  disabled={!selectedPhoto || loading}
+                >
+                  Confirmar Biometria
+                </Button>
+                <Button
+                  variant="ghost"
+                  onClick={() => handleCompleteBiometricRegistration(true)}
+                  className="w-full text-xs text-muted-foreground"
+                  disabled={loading}
+                >
+                  Pular e validar depois
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* STEP 3: Processing biometrics */}
-        {isSignUp && signUpStep === "processing" && (
-          <div className="flex flex-col items-center justify-center py-10 space-y-4 text-center">
-            <Loader2 className="h-10 w-10 text-primary animate-spin" />
-            <p className="font-medium text-foreground">{processingMessage}</p>
-            <p className="text-xs text-muted-foreground">Isso leva apenas alguns instantes...</p>
-          </div>
-        )}
+          {/* STEP 3 — Processing */}
+          {isSignUp && signUpStep === "processing" && (
+            <div className="flex flex-col items-center justify-center py-12 space-y-5 text-center">
+              <div
+                className="h-16 w-16 rounded-full flex items-center justify-center animate-pulse"
+                style={{ background: "linear-gradient(135deg, #b45309, #92400e)" }}
+              >
+                <Loader2 className="h-8 w-8 text-white animate-spin" />
+              </div>
+              <p className="font-bold text-lg text-foreground">{processingMessage}</p>
+              <p className="text-xs text-muted-foreground">Isso leva apenas alguns instantes...</p>
+            </div>
+          )}
 
-        {/* STEP 4: Success confirmation */}
-        {isSignUp && signUpStep === "success" && (
-          <div className="flex flex-col items-center justify-center py-10 space-y-4 text-center">
-            <ShieldCheck className="h-16 w-16 text-emerald-600 animate-bounce" />
-            <h3 className="font-bold text-lg text-foreground">Identidade Validada!</h3>
-            <p className="text-sm text-muted-foreground">Sua conta foi ativada com sucesso.</p>
-          </div>
-        )}
+          {/* STEP 4 — Success */}
+          {isSignUp && signUpStep === "success" && (
+            <div className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
+              <ShieldCheck className="h-20 w-20 text-emerald-500 animate-bounce" />
+              <h3 className="font-extrabold text-xl text-foreground">Identidade Validada!</h3>
+              <p className="text-sm text-muted-foreground">Sua conta foi ativada com sucesso. Bem-vindo à Barber House! 💈</p>
+            </div>
+          )}
 
-        {/* Auth Toggle (Login / Signup) footer */}
-        {signUpStep === "fields" && (
-          <p className="text-center text-sm text-muted-foreground pt-4">
-            {isSignUp ? "Já tem uma conta?" : "Ainda não tem conta?"}{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setError("");
-                setIsSignUp(!isSignUp);
-                setSignUpStep("fields");
-              }}
-              className="font-medium text-primary hover:underline"
-            >
-              {isSignUp ? "Fazer Login" : "Criar Conta"}
-            </button>
-          </p>
-        )}
-
-        <p className="text-center text-xs text-muted-foreground">
-          É gerente de um ponto? Entre com sua conta aqui — você será levado ao
-          Portal do Gerente automaticamente.
-        </p>
-
-        <p className="text-center text-xs text-muted-foreground">
-          É dono da barbearia?{" "}
-          <a href="/" className="text-primary hover:underline font-medium">
-            Ir para o Portal da Organização
-          </a>
-        </p>
+          {/* Footer links */}
+          {signUpStep === "fields" && (
+            <div className="pt-2 border-t border-border space-y-2 text-center">
+              <p className="text-xs text-muted-foreground">
+                É gerente de um ponto? Entre com sua conta aqui — você será levado ao portal automaticamente.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                É dono da barbearia?{" "}
+                <a href="/" className="text-primary hover:underline font-semibold">
+                  Ir para o Portal da Organização
+                </a>
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
