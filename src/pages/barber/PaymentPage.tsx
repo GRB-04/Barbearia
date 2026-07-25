@@ -470,43 +470,78 @@ export default function PaymentPage() {
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col gap-8 md:flex-row">
-                {/* Left — Payment reference block */}
-                <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border bg-muted/20 p-6 shadow-sm gap-4">
-                  <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-primary/10">
-                    <QrCode className="h-10 w-10 text-primary" />
+              <div className="flex flex-col gap-8 lg:flex-row items-center">
+                {/* Left — Pix QR Code & Copia e Cola */}
+                <div className="flex flex-1 flex-col items-center justify-center rounded-3xl border bg-card p-6 shadow-sm gap-5 text-center w-full">
+                  <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 rounded-full text-xs font-bold">
+                    <QrCode className="h-4 w-4" />
+                    Pix Instantâneo — Asaas
                   </div>
-                  <div className="text-center space-y-1">
-                    <p className="text-sm font-semibold">Referência do pagamento</p>
-                    <p className="font-mono text-xs text-muted-foreground break-all">
-                      {payment.reference ?? payment.id.slice(0, 20) + "..."}
-                    </p>
+
+                  {/* QR Code image */}
+                  <div className="relative p-3 bg-white rounded-2xl shadow-sm border border-border">
+                    <img
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=${encodeURIComponent((payment as any).pixCopiaECola || payment.reference || payment.id)}`}
+                      alt="QR Code Pix"
+                      className="h-48 w-48 object-contain rounded-lg"
+                    />
+                  </div>
+
+                  {/* Copia e Cola code box */}
+                  <div className="w-full space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Pix Copia e Cola</p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        readOnly
+                        value={(payment as any).pixCopiaECola || payment.reference || payment.id}
+                        className="flex-1 rounded-xl border bg-muted/40 px-3 py-2 text-xs font-mono text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="rounded-xl shrink-0 font-semibold gap-1.5"
+                        onClick={() => {
+                          navigator.clipboard.writeText((payment as any).pixCopiaECola || payment.reference || payment.id);
+                          toast({
+                            title: "Código Pix Copiado! 📋",
+                            description: "Abra o aplicativo do seu banco e escolha a opção 'Pix Copia e Cola'.",
+                          });
+                        }}
+                      >
+                        Copiar Pix
+                      </Button>
+                    </div>
                   </div>
                 </div>
 
-                {/* Right — Status */}
-                <div className="flex flex-1 flex-col justify-center space-y-6">
-                  <div className="rounded-xl bg-amber-50 p-4 border border-amber-100">
-                    <div className="flex items-center gap-2 text-amber-800">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span className="text-sm font-bold">Aguardando confirmação...</span>
+                {/* Right — Status & instructions */}
+                <div className="flex flex-1 flex-col justify-center space-y-6 w-full">
+                  <div className="rounded-2xl bg-amber-500/10 p-5 border border-amber-500/20">
+                    <div className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+                      <Loader2 className="h-5 w-5 animate-spin shrink-0" />
+                      <span className="text-sm font-bold">Aguardando pagamento...</span>
                     </div>
-                    <p className="mt-2 text-sm text-amber-700">
-                      Sua reserva expira em <span className="font-mono font-bold">{formatTime(timeLeft)}</span>
+                    <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                      Escaneie o QR Code com o aplicativo do seu banco. A confirmação é <strong className="text-foreground">instantânea</strong>.
                     </p>
+                    <div className="mt-3 pt-3 border-t border-amber-500/15 flex items-center justify-between text-xs font-medium">
+                      <span className="text-muted-foreground">Tempo limite:</span>
+                      <span className="font-mono font-bold text-amber-700 dark:text-amber-400 text-sm">{formatTime(timeLeft)}</span>
+                    </div>
                   </div>
 
-                  <div className="space-y-2 rounded-xl border border-border bg-muted/30 p-4">
-                    <div className="flex items-start gap-2">
-                      <Clock className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-medium">Como funciona?</p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Realize o pagamento pelo método acordado com a barbearia.
-                          Após a confirmação, sua reserva será ativada automaticamente.
-                        </p>
-                      </div>
+                  <div className="space-y-3 rounded-2xl border border-border bg-muted/20 p-4 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2 font-semibold text-foreground">
+                      <Clock className="h-4 w-4 text-primary" />
+                      Como pagar:
                     </div>
+                    <ol className="list-decimal list-inside space-y-1.5 leading-relaxed">
+                      <li>Abra o aplicativo do seu banco</li>
+                      <li>Escolha a opção <strong>Pix</strong> e depois <strong>Pix Copia e Cola</strong> ou <strong>Ler QR Code</strong></li>
+                      <li>Cole o código acima ou aponte a câmera para a tela</li>
+                      <li>Confirme os dados e o pagamento</li>
+                    </ol>
                   </div>
                 </div>
               </div>
@@ -516,22 +551,21 @@ export default function PaymentPage() {
           {!isPaid && !isExpired && (
             <CardFooter className="flex flex-col border-t bg-muted/20 pt-6">
               <p className="mb-4 text-center text-xs text-muted-foreground">
-                O status será atualizado automaticamente após a confirmação do pagamento.
+                Em ambiente de testes, você pode simular a aprovação instantânea abaixo:
               </p>
               <div className="flex w-full gap-4">
-                <Button variant="outline" className="flex-1" onClick={() => navigate("/barber/explore")}>
-                  Voltar para explorar
+                <Button variant="outline" className="flex-1 rounded-xl" onClick={() => navigate("/barber/explore")}>
+                  Voltar
                 </Button>
                 <Button 
-                  className="flex-1 bg-green-600 hover:bg-green-700 text-white" 
+                  className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-2" 
                   onClick={async () => {
                     try {
                       await simulatePaymentConfirmation(payment.id);
                       toast({
-                        title: "Pagamento Simulado",
-                        description: "O status do pagamento foi alterado para pago."
+                        title: "Pagamento Aprovado via Asaas! ⚡",
+                        description: "O pagamento foi confirmado e a reserva ativada.",
                       });
-                      // Refresh the page to show confirmed state
                       window.location.reload();
                     } catch (e: any) {
                       toast({
@@ -542,7 +576,8 @@ export default function PaymentPage() {
                     }
                   }}
                 >
-                  Simular Pagamento
+                  <CheckCircle2 className="h-4 w-4" />
+                  Simular Pagamento no Asaas (Teste)
                 </Button>
               </div>
             </CardFooter>
