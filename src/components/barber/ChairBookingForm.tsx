@@ -255,7 +255,29 @@ export default function ChairBookingForm({
   function handleSelectShift(shiftId: "morning" | "afternoon") {
     setSelectedShift(shiftId);
     const shift = FIXED_SHIFTS.find((s) => s.id === shiftId);
-    if (shift) {
+    if (shift && date && locationHours) {
+      const config = getDayConfig(locationHours, buildDate(date, "12:00"));
+      let start = shift.start;
+      let end = shift.end;
+
+      if (config && config.start && config.open !== false) {
+        const [openH, openM] = config.start.split(":").map(Number);
+        const [shiftStartH] = shift.start.split(":").map(Number);
+        const openMinutes = openH * 60 + openM;
+        const shiftStartMinutes = shiftStartH * 60;
+
+        if (shiftId === "morning" && openMinutes > shiftStartMinutes) {
+          start = config.start;
+          const endMinutes = Math.min(openMinutes + 240, 22 * 60);
+          const endH = Math.floor(endMinutes / 60);
+          const endM = endMinutes % 60;
+          end = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+        }
+      }
+
+      setStartTime(start);
+      setEndTime(end);
+    } else if (shift) {
       setStartTime(shift.start);
       setEndTime(shift.end);
     }
@@ -275,6 +297,10 @@ export default function ChairBookingForm({
       const startMinutes = s.getHours() * 60 + s.getMinutes();
       const endMinutes = e.getHours() * 60 + e.getMinutes();
 
+      // If start is within 60 mins before opening (e.g. 08:00 vs 09:00), auto-align to opening time
+      if (startMinutes < openMinutes && (openMinutes - startMinutes) <= 60) {
+        return null;
+      }
       if (startMinutes < openMinutes) {
         return `O início da reserva deve ser a partir das ${config.start}.`;
       }
@@ -298,7 +324,21 @@ export default function ChairBookingForm({
       return { isValid: false, error: "Selecione a data e o turno.", conflict: false, conflictOwn: false };
     }
 
-    const s = buildDate(date, startTime);
+    let effectiveStart = startTime;
+    if (locationHours && date) {
+      const config = getDayConfig(locationHours, buildDate(date, startTime));
+      if (config && config.start && config.open !== false) {
+        const [openH, openM] = config.start.split(":").map(Number);
+        const [startH, startM] = startTime.split(":").map(Number);
+        const openMins = openH * 60 + openM;
+        const startMins = startH * 60 + startM;
+        if (startMins < openMins && (openMins - startMins) <= 60) {
+          effectiveStart = config.start;
+        }
+      }
+    }
+
+    const s = buildDate(date, effectiveStart);
     const f = buildDate(date, endTime);
 
     if (f <= s) {
@@ -363,7 +403,21 @@ export default function ChairBookingForm({
       return;
     }
 
-    const s = buildDate(date, startTime);
+    let effectiveStart = startTime;
+    if (locationHours && date) {
+      const config = getDayConfig(locationHours, buildDate(date, startTime));
+      if (config && config.start && config.open !== false) {
+        const [openH, openM] = config.start.split(":").map(Number);
+        const [startH, startM] = startTime.split(":").map(Number);
+        const openMins = openH * 60 + openM;
+        const startMins = startH * 60 + startM;
+        if (startMins < openMins && (openMins - startMins) <= 60) {
+          effectiveStart = config.start;
+        }
+      }
+    }
+
+    const s = buildDate(date, effectiveStart);
     const f = buildDate(date, endTime);
 
     setSaving(true);
