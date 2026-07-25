@@ -155,6 +155,7 @@ function OwnerRoutes() {
           <Route path="financial" element={<FinancialReportPage />} />
           <Route path="audit" element={<AuditLogPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="profile" element={<BarberProfilePage />} />
         </Route>
 
         <Route path="*" element={<NotFound />} />

@@ -4,7 +4,7 @@ import {
   cancelMyBarberBooking,
   listMyBarberBookings,
   type BarberBookingItem,
-} from "@/services/barberBookings";
+} from "@/services/chairBookings";
 import { toast } from "sonner";
 
 function formatDateTime(value: string): string {

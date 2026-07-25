@@ -17,6 +17,7 @@ export default function BarberProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState<string>((barberProfile as any)?.avatar_url ?? "");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   // Password change state
   const [newPassword, setNewPassword] = useState("");
@@ -188,6 +189,7 @@ export default function BarberProfilePage() {
       );
       toast.success("Perfil atualizado com sucesso!");
       await refreshBarberProfile();
+      setIsEditing(false);
     } catch (err: any) {
       toast.error(err.message || "Erro ao salvar alterações.");
       console.error(err);
@@ -305,7 +307,8 @@ export default function BarberProfilePage() {
                       onChange={(e) => setEmail(e.target.value)} 
                       placeholder="seu.email@exemplo.com"
                       required
-                      className="rounded-2xl border-muted" 
+                      disabled={!isEditing}
+                      className="rounded-2xl border-muted disabled:opacity-60 disabled:cursor-not-allowed" 
                     />
                   </div>
 
@@ -331,7 +334,8 @@ export default function BarberProfilePage() {
                       onChange={(e) => setFullName(e.target.value)} 
                       placeholder="Nome do profissional"
                       required
-                      className="rounded-2xl border-muted"
+                      disabled={!isEditing}
+                      className="rounded-2xl border-muted disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </div>
 
@@ -342,15 +346,43 @@ export default function BarberProfilePage() {
                       value={phone} 
                       onChange={(e) => setPhone(e.target.value)} 
                       placeholder="(99) 99999-9999"
-                      className="rounded-2xl border-muted"
+                      disabled={!isEditing}
+                      className="rounded-2xl border-muted disabled:opacity-60 disabled:cursor-not-allowed"
                     />
                   </div>
                 </div>
 
-                <div className="pt-2 flex justify-end">
-                  <Button type="submit" className="rounded-2xl h-11 px-6 font-bold" disabled={saving || uploading}>
-                    {saving ? "Salvando..." : "Salvar Alterações"}
-                  </Button>
+                <div className="pt-2 flex justify-end gap-2">
+                  {!isEditing ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-2xl h-11 px-6 font-bold"
+                      onClick={() => setIsEditing(true)}
+                    >
+                      Alterar Dados
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-2xl h-11 px-6"
+                        onClick={() => {
+                          setIsEditing(false);
+                          setFullName(barberProfile?.full_name ?? "");
+                          setPhone(barberProfile?.phone ?? "");
+                          setEmail(barberProfile?.email ?? "");
+                        }}
+                        disabled={saving}
+                      >
+                        Cancelar
+                      </Button>
+                      <Button type="submit" className="rounded-2xl h-11 px-6 font-bold" disabled={saving || uploading}>
+                        {saving ? "Salvando..." : "Salvar Alterações"}
+                      </Button>
+                    </>
+                  )}
                 </div>
 
               </form>

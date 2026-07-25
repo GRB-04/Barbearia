@@ -65,6 +65,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         .from("organizations")
         .select("*")
         .eq("owner_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       const { data, error } = await withTimeout(queryPromise, 8000);
@@ -100,8 +102,6 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         throw new Error("Nome da organização é obrigatório.");
       }
 
-      setLoading(true);
-
       try {
         const { data, error } = await supabase
           .from("organizations")
@@ -118,8 +118,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
         setOrganization(data);
         return data;
-      } finally {
-        setLoading(false);
+      } catch (err) {
+        throw err;
       }
     },
     [user?.id]

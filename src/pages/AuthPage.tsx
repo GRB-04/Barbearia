@@ -8,6 +8,8 @@ import { Scissors } from "lucide-react";
 export default function AuthPage() {
   const { signIn, signUp } = useAuth();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [orgName, setOrgName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -16,10 +18,16 @@ export default function AuthPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (isSignUp) {
+      if (!fullName.trim()) { setError("Informe seu nome completo."); return; }
+      if (!orgName.trim()) { setError("Informe o nome da barbearia."); return; }
+    }
+
     setLoading(true);
     try {
       if (isSignUp) {
-        await signUp(email, password);
+        await signUp(email, password, { full_name: fullName.trim(), org_name: orgName.trim() });
       } else {
         await signIn(email, password);
       }
@@ -37,14 +45,14 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen items-start">
       {/* Left Panel — decorative barbershop visual */}
       <div
-        className="hidden lg:flex flex-col justify-between w-1/2 p-10 relative overflow-hidden"
+        className="hidden lg:flex flex-col justify-between w-1/2 p-10 relative overflow-hidden sticky top-0 h-screen"
       >
         {/* Full photo background */}
         <img
-          src="/barber-house-hero.jpg"
+          src="/owner-portal-hero.jpg"
           alt="Barber House"
           className="absolute inset-0 h-full w-full object-cover"
         />
@@ -149,6 +157,38 @@ export default function AuthPage() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
+
+            {/* Extra fields only in sign-up mode */}
+            {isSignUp && (
+              <>
+                <div className="space-y-2">
+                  <Label htmlFor="owner-fullname" className="text-sm font-semibold">Seu Nome Completo</Label>
+                  <Input
+                    id="owner-fullname"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Ex: João Silva"
+                    required
+                    autoComplete="name"
+                    className="h-11 rounded-xl"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="owner-orgname" className="text-sm font-semibold">Nome da Barbearia</Label>
+                  <Input
+                    id="owner-orgname"
+                    type="text"
+                    value={orgName}
+                    onChange={(e) => setOrgName(e.target.value)}
+                    placeholder="Ex: Barber House SP"
+                    required
+                    className="h-11 rounded-xl"
+                  />
+                </div>
+              </>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="owner-email" className="text-sm font-semibold">E-mail</Label>
               <Input
@@ -172,10 +212,11 @@ export default function AuthPage() {
                 placeholder="••••••••"
                 required
                 minLength={6}
-                autoComplete="current-password"
+                autoComplete={isSignUp ? "new-password" : "current-password"}
                 className="h-11 rounded-xl"
               />
             </div>
+
 
             {error && (
               <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3">
