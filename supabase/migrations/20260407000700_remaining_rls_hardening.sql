@@ -1,7 +1,7 @@
 begin;
 
 -- =========================================================
--- BARBER CHAIR CONNECT
+-- BarberHouse CONNECT
 -- HARDENING RLS RESTANTE (F002)
 -- Sem recursão em policies
 -- =========================================================

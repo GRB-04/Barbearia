@@ -1,7 +1,7 @@
 begin;
 
 -- =========================================================
--- BARBER CHAIR CONNECT
+-- BarberHouse CONNECT
 -- RESET DE RLS RECURSIVO E ESTABILIZAÇÃO DO OWNER
 -- =========================================================
 -- Objetivo:
