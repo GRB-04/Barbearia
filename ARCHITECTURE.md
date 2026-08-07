@@ -98,6 +98,24 @@ App chama claim_barber_invitation(organization_id)
 
 ---
 
+## Dois apps, um só codebase
+
+- Portal do dono/admin: rotas em `/*`
+- Portal do barbeiro: rotas em `/barber/*`
+
+Os dois falam direto com o Supabase (PostgreSQL + Auth + RLS). Não existe servidor de API próprio. A lógica de query fica em `src/services/*.ts`.
+
+---
+
+## Stack
+
+- React 18 + TypeScript + Vite
+- Tailwind + shadcn/ui
+- React Router + React Query
+- Supabase (PostgreSQL + Auth + RLS)
+
+---
+
 ## Convenções de nomenclatura
 
 | Padrão | Exemplo |
